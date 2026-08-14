@@ -5,6 +5,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
+const connectDB = require('./config/db');
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 
@@ -27,21 +29,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.use('/api/auth', authRoutes);
+
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI);
-
-    console.log('MongoDB connected successfully');
-
-    app.listen(PORT, () => {
-      console.log(`FlowSync API running on http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error('MongoDB connection failed:', error.message);
-    process.exit(1);
-  }
+  await connectDB();
+  app.listen(PORT, () => {
+    console.log(`FlowSync API running on http://localhost:${PORT}`);
+  });
 }
 
 startServer();
