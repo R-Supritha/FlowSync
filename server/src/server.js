@@ -31,7 +31,9 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGODB_URI, {
+  tls: true,
+});
 
     console.log('MongoDB connected successfully');
 
