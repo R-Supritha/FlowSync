@@ -7,7 +7,8 @@ const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
-
+const protect = require('./middleware/authMiddleware');
+const workspaceRoutes = require('./routes/workspaceRoutes');
 const app = express();
 
 app.use(helmet());
@@ -30,6 +31,11 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/workspaces', workspaceRoutes);
+
+app.get('/api/test-protected', protect, (req, res) => {
+  res.json({ success: true, message: 'You are authenticated', user: req.user });
+});
 
 const PORT = process.env.PORT || 5000;
 
