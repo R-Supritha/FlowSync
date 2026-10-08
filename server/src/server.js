@@ -9,6 +9,8 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const protect = require('./middleware/authMiddleware');
 const workspaceRoutes = require('./routes/workspaceRoutes');
+const projectRoutes = require('./routes/projectRoutes');
+const taskRoutes = require('./routes/taskRoutes');
 const app = express();
 
 app.use(helmet());
@@ -32,6 +34,8 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/workspaces', workspaceRoutes);
+app.use('/api', projectRoutes);
+app.use('/api', taskRoutes);
 
 app.get('/api/test-protected', protect, (req, res) => {
   res.json({ success: true, message: 'You are authenticated', user: req.user });
