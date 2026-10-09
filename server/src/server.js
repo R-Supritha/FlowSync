@@ -19,6 +19,7 @@ const fileRoutes = require('./routes/fileRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const searchRoutes = require('./routes/searchRoutes');
+const profileRoutes = require('./routes/profileRoutes');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
 
@@ -54,6 +55,7 @@ app.use('/api', dashboardRoutes);
 app.use('/api', notificationRoutes);
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use('/api', searchRoutes);
+app.use('/api', profileRoutes);
 
 app.get('/api/test-protected', protect, (req, res) => {
   res.json({ success: true, message: 'You are authenticated', user: req.user });
