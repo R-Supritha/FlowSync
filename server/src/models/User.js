@@ -14,6 +14,12 @@ const userSchema = new mongoose.Schema(
     skills: { type: [String], default: [] },
     avatarUrl: { type: String, trim: true, default: '' },
     githubUsername: { type: String, trim: true, default: '' },
+    privacy: {
+      statusVisibility: { type: String, enum: ['everyone', 'team', 'managers', 'private'], default: 'team' },
+      contributionVisibility: { type: String, enum: ['everyone', 'team', 'managers', 'private'], default: 'private' },
+      // Allow guessing my work mode (Coding/Reviewing/Testing) from my project activity.
+      inferWorkMode: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );
