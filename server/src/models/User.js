@@ -10,6 +10,10 @@ const userSchema = new mongoose.Schema(
       enum: ['Admin', 'Manager', 'Member', 'Viewer'],
       default: 'Member',
     },
+    bio: { type: String, trim: true, maxlength: 500, default: '' },
+    skills: { type: [String], default: [] },
+    avatarUrl: { type: String, trim: true, default: '' },
+    githubUsername: { type: String, trim: true, default: '' },
   },
   { timestamps: true }
 );
