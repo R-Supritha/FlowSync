@@ -10,6 +10,7 @@ const {
   serverError,
 } = require('../utils/access');
 const { wouldCreateCycle } = require('../utils/taskDependencies');
+const { notify } = require('../utils/notify');
 
 const PRIORITIES = ['Low', 'Medium', 'High'];
 const DONE_STATUS = 'Done';
@@ -210,6 +211,16 @@ async function createTask(req, res) {
     applyCompletion(task);
     await task.save();
 
+    if (task.assignee) {
+      await notify({
+        user: task.assignee,
+        actor: req.user.id,
+        type: 'task_assigned',
+        message: `You were assigned to "${task.title}"`,
+        link: { workspace: project.workspace, project: project._id, task: task._id },
+      });
+    }
+
     res.status(201).json({ success: true, task });
   } catch (error) {
     serverError(res, 'Failed to create task', error);
@@ -355,6 +366,16 @@ async function assignTask(req, res) {
     task.assignee = data.assignee;
     await task.save();
     await task.populate('assignee', 'name email');
+
+    if (data.assignee) {
+      await notify({
+        user: data.assignee,
+        actor: req.user.id,
+        type: 'task_assigned',
+        message: `You were assigned to "${task.title}"`,
+        link: { workspace: project.workspace, project: project._id, task: task._id },
+      });
+    }
 
     res.json({ success: true, task });
   } catch (error) {

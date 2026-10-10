@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FlowSync API Tester</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #8a90a2; --accent: #5b8cff; --green: #3ddc84;
+    --red: #ff5d6c; --yellow: #ffcc66;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 20px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 24px 0 10px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 4px; min-width: 160px; flex: 1; }
+  .field label { font-size: 11px; color: var(--muted); }
+  input, select, textarea, button { font-family: inherit; font-size: 13px; }
+  input, select, textarea { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 9px; }
+  textarea { font-family: ui-monospace, Consolas, monospace; resize: vertical; }
+  button { background: var(--accent); color: white; border: none; border-radius: 6px; padding: 8px 14px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+  button:hover { opacity: .9; }
+  button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+  button.danger { background: var(--red); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .state-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+  .state-grid .field { min-width: 0; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+  .pill.ok { background: rgba(61,220,132,.15); color: var(--green); }
+  .pill.bad { background: rgba(255,93,108,.15); color: var(--red); }
+  .pill.pending { background: rgba(255,204,102,.15); color: var(--yellow); }
+  #log { max-height: 480px; overflow-y: auto; }
+  .entry { border-bottom: 1px solid var(--border); padding: 10px 0; }
+  .entry:last-child { border-bottom: none; }
+  .entry-head { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13px; }
+  .entry-head .method { font-weight: 700; width: 46px; color: var(--accent); }
+  .entry-head .url { color: var(--text); flex: 1; word-break: break-all; }
+  .entry-head .time { color: var(--muted); font-size: 11px; }
+  .entry-body { display: none; margin-top: 8px; padding-left: 54px; }
+  .entry.open .entry-body { display: block; }
+  .entry-body pre { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; font-size: 12px; margin: 0; }
+  #summary { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  details { margin-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>FlowSync API Tester</h1>
+<div class="sub">Runs entirely in your browser against your local server. Open this file directly (double-click it) while <code>npm run dev</code> is running.</div>
+
+<div class="panel">
+  <h2>1. Connect &amp; log in</h2>
+  <div class="row">
+    <div class="field"><label>Base URL</label><input id="baseUrl" value="http://localhost:5000/api"></div>
+    <div class="field"><label>Email (admin / main test user)</label><input id="email" value="sunitha@test.com"></div>
+    <div class="field"><label>Password</label><input id="password" type="text" value="test1234"></div>
+    <div class="field"><label>Name (used only if registering)</label><input id="name" value="Sunitha"></div>
+    <button onclick="bootstrapLogin()">Register-if-needed &amp; Log in</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <div class="field"><label>Second user email (for team/invite/mention tests)</label><input id="email2" value="raj@test.com"></div>
+    <div class="field"><label>Second user password</label><input id="password2" type="text" value="test1234"></div>
+    <div class="field"><label>Second user name</label><input id="name2" value="Raj"></div>
+    <button class="secondary" onclick="bootstrapSecondUser()">Register-if-needed 2nd user</button>
+  </div>
+  <div id="authStatus" class="hint">Not logged in.</div>
+</div>
+
+<div class="panel">
+  <h2>2. Current state (auto-filled as you go — edit freely)</h2>
+  <div class="state-grid" id="stateGrid"></div>
+  <div class="hint">These values are substituted into any <code>{{token}}</code> placeholder below, e.g. <code>/projects/{{projectId}}/tasks</code>.</div>
+</div>
+
+<div class="panel">
+  <h2>3. Automated smoke test</h2>
+  <div class="row">
+    <button onclick="runSmokeTest()">▶ Run full smoke test (projects → tasks → teams → kanban → calendar → comments → files → notifications)</button>
+    <button class="secondary" onclick="clearLog()">Clear log</button>
+  </div>
+  <div id="summary"></div>
+</div>
+
+<div class="panel">
+  <h2>4. Try one endpoint</h2>
+  <div class="row">
+    <div class="field" style="flex:2; min-width:260px"><label>Endpoint</label>
+      <select id="templatePicker" onchange="loadTemplate()"></select>
+    </div>
+    <div class="field" style="max-width:90px"><label>Method</label><input id="reqMethod"></div>
+    <div class="field" style="flex:2"><label>URL (relative to base)</label><input id="reqUrl"></div>
+    <button onclick="sendCustom()">Send</button>
+  </div>
+  <div class="field" style="margin-top:10px"><label>Body (JSON, leave empty for none)</label>
+    <textarea id="reqBody" rows="4"></textarea>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>5. File upload (needs a real file, not JSON)</h2>
+  <div class="row">
+    <div class="field"><label>Attach to</label>
+      <select id="uploadTarget">
+        <option value="project">Project ({{projectId}})</option>
+        <option value="task">Task ({{taskId}})</option>
+        <option value="comment">Comment ({{commentId}})</option>
+      </select>
+    </div>
+    <div class="field"><label>File</label><input id="uploadFile" type="file"></div>
+    <button onclick="uploadFile()">Upload</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Response log</h2>
+  <div id="log"></div>
+</div>
+
+<script>
+const defaultState = {
+  token: '', userId: '', secondUserId: '', secondUserEmail: '',
+  workspaceId: '', projectId: '', milestoneId: '',
+  taskId: '', taskId2: '', teamId: '', commentId: '', notificationId: '', fileId: ''
+};
+let state = { ...defaultState };
+
+function renderStateGrid() {
+  const grid = document.getElementById('stateGrid');
+  grid.innerHTML = Object.keys(state).filter(k => k !== 'token').map(k => `
+    <div class="field">
+      <label>${k}</label>
+      <input id="state_${k}" value="${state[k] || ''}" oninput="state['${k}']=this.value">
+    </div>`).join('');
+}
+renderStateGrid();
+
+function substitute(str) {
+  if (!str) return str;
+  return str.replace(/\{\{(\w+)\}\}/g, (m, key) => (state[key] !== undefined && state[key] !== '' ? state[key] : m));
+}
+
+function baseUrl() { return document.getElementById('baseUrl').value.replace(/\/$/, ''); }
+
+async function req(method, path, body, { auth = true, raw = false } = {}) {
+  const url = baseUrl() + substitute(path);
+  const headers = {};
+  if (auth && state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  let fetchBody;
+  if (body !== undefined && body !== null && body !== '') {
+    headers['Content-Type'] = 'application/json';
+    fetchBody = typeof body === 'string' ? substitute(body) : JSON.stringify(body);
+  }
+  const start = performance.now();
+  let status = 0, json = null, errText = null;
+  try {
+    const res = await fetch(url, { method, headers, body: fetchBody });
+    status = res.status;
+    try { json = await res.json(); } catch (e) { json = null; }
+  } catch (e) {
+    errText = e.message + ' — is the server running, and is the Base URL correct? (CORS/connection errors show up here)';
+  }
+  const ms = Math.round(performance.now() - start);
+  logEntry(method, url, status, json, errText, ms);
+  return { status, body: json, error: errText };
+}
+
+function logEntry(method, url, status, json, errText, ms) {
+  const log = document.getElementById('log');
+  const ok = status >= 200 && status < 300;
+  const div = document.createElement('div');
+  div.className = 'entry';
+  div.innerHTML = `
+    <div class="entry-head" onclick="this.parentElement.classList.toggle('open')">
+      <span class="pill ${errText ? 'bad' : ok ? 'ok' : 'bad'}">${errText ? 'ERR' : status}</span>
+      <span class="method">${method}</span>
+      <span class="url">${url}</span>
+      <span class="time">${ms}ms</span>
+    </div>
+    <div class="entry-body"><pre>${escapeHtml(errText || JSON.stringify(json, null, 2))}</pre></div>`;
+  log.prepend(div);
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+function clearLog() { document.getElementById('log').innerHTML = ''; document.getElementById('summary').innerHTML = ''; }
+
+// ---------- Auth bootstrap ----------
+async function loginOnly(email, password) {
+  return req('POST', '/auth/login', { email, password }, { auth: false });
+}
+async function registerOnly(name, email, password) {
+  return req('POST', '/auth/register', { name, email, password }, { auth: false });
+}
+
+async function bootstrapLogin() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const name = document.getElementById('name').value;
+
+  let r = await loginOnly(email, password);
+  if (r.status !== 200) {
+    r = await registerOnly(name, email, password);
+  }
+  if (r.body && r.body.token) {
+    state.token = r.body.token;
+    state.userId = r.body.user.id;
+    document.getElementById('authStatus').innerHTML =
+      `Logged in as <b>${r.body.user.name}</b> (${r.body.user.email}) — userId: <code>${state.userId}</code>`;
+    renderStateGrid();
+  } else {
+    document.getElementById('authStatus').innerHTML = `<span style="color:var(--red)">Login/register failed — check the log below.</span>`;
+  }
+}
+
+async function bootstrapSecondUser() {
+  const email = document.getElementById('email2').value;
+  const password = document.getElementById('password2').value;
+  const name = document.getElementById('name2').value;
+
+  let r = await loginOnly(email, password);
+  if (r.status !== 200) {
+    r = await registerOnly(name, email, password);
+  }
+  if (r.body && r.body.user) {
+    state.secondUserId = r.body.user.id;
+    state.secondUserEmail = r.body.user.email;
+    renderStateGrid();
+  }
+}
+
+// ---------- Smoke test ----------
+async function runSmokeTest() {
+  if (!state.token) { alert('Log in first (step 1).'); return; }
+  let pass = 0, fail = 0;
+  const check = (label, ok) => { ok ? pass++ : fail++; };
+
+  let r;
+  r = await req('POST', '/workspaces', { name: 'Smoke Test Workspace', description: 'auto' });
+  if (r.body?.workspace) { state.workspaceId = r.body.workspace._id; renderStateGrid(); }
+  check('create workspace', r.status === 201);
+
+  r = await req('GET', '/project-templates');
+  check('list templates', r.status === 200);
+
+  r = await req('POST', '/workspaces/{{workspaceId}}/projects',
+    { name: 'Demo Project', template: 'web-app-starter', startDate: '2026-10-01', deadline: '2026-12-31' });
+  if (r.body?.project) { state.projectId = r.body.project._id; renderStateGrid(); }
+  check('create project', r.status === 201);
+
+  r = await req('POST', '/projects/{{projectId}}/milestones', { title: 'Beta Release', targetDate: '2026-11-20' });
+  if (r.body?.milestone) { state.milestoneId = r.body.milestone._id; renderStateGrid(); }
+  check('add milestone', r.status === 201);
+
+  r = await req('POST', '/projects/{{projectId}}/tasks',
+    { title: 'Build login page', priority: 'High', estimatedHours: 5, labels: ['frontend', 'auth'], deadline: '2026-10-15' });
+  if (r.body?.task) { state.taskId = r.body.task._id; renderStateGrid(); }
+  check('create task 1', r.status === 201);
+
+  r = await req('POST', '/projects/{{projectId}}/tasks', { title: 'Protected routes', priority: 'Medium', dependencies: ['{{taskId}}'] });
+  if (r.body?.task) { state.taskId2 = r.body.task._id; renderStateGrid(); }
+  check('create task 2 (depends on task 1)', r.status === 201);
+
+  r = await req('PATCH', '/tasks/{{taskId}}/status', { status: 'In Progress' });
+  check('move task to In Progress', r.status === 200);
+
+  r = await req('PATCH', '/tasks/{{taskId}}/assign', { assignee: '{{userId}}' });
+  check('assign task to self', r.status === 200);
+
+  if (state.secondUserEmail) {
+    r = await req('POST', '/workspaces/{{workspaceId}}/invite', { email: state.secondUserEmail, role: 'Member' });
+    check('invite second user to workspace', r.status === 200);
+  }
+
+  r = await req('POST', '/workspaces/{{workspaceId}}/teams', { name: 'Frontend Team' });
+  if (r.body?.team) { state.teamId = r.body.team._id; renderStateGrid(); }
+  check('create team', r.status === 201);
+
+  if (state.secondUserId) {
+    r = await req('POST', '/teams/{{teamId}}/members', { userId: state.secondUserId, role: 'Member' });
+    check('add second user to team', r.status === 201);
+  }
+
+  r = await req('POST', '/teams/{{teamId}}/projects/{{projectId}}', null);
+  check('assign team to project', r.status === 201);
+
+  r = await req('GET', '/projects/{{projectId}}/board');
+  check('get kanban board', r.status === 200);
+
+  r = await req('PATCH', '/projects/{{projectId}}/board/reorder', { status: 'Backlog', orderedTaskIds: ['{{taskId2}}'] });
+  check('reorder kanban column', r.status === 200);
+
+  r = await req('GET', '/projects/{{projectId}}/calendar?view=month&date=2026-10-15');
+  check('project calendar', r.status === 200);
+
+  r = await req('GET', '/workspaces/{{workspaceId}}/calendar?view=week&date=2026-10-15');
+  check('workspace calendar', r.status === 200);
+
+  r = await req('POST', '/tasks/{{taskId}}/comments', { text: 'Looks good so far!' });
+  if (r.body?.comment) { state.commentId = r.body.comment._id; renderStateGrid(); }
+  check('create comment', r.status === 201);
+
+  r = await req('POST', '/comments/{{commentId}}/reactions', { emoji: '👍' });
+  check('react to comment', r.status === 200);
+
+  r = await req('GET', '/tasks/{{taskId}}/comments');
+  check('list comments', r.status === 200);
+
+  r = await req('GET', '/notifications');
+  check('list notifications', r.status === 200);
+
+  r = await req('PATCH', '/notifications/read-all', null);
+  check('mark all notifications read', r.status === 200);
+
+  r = await req('GET', '/projects/{{projectId}}/files');
+  check('list project files (empty is fine — use section 5 to actually upload)', r.status === 200);
+
+  const summary = document.getElementById('summary');
+  summary.innerHTML = `<span class="pill ${fail === 0 ? 'ok' : 'bad'}">${pass} passed, ${fail} failed</span>
+    &nbsp; Expand any row in the log below for full request/response detail.`;
+}
+
+// ---------- Endpoint explorer ----------
+const templates = [
+  ['Auth', 'Register', 'POST', '/auth/register', '{\n  "name": "Someone",\n  "email": "someone@test.com",\n  "password": "test1234"\n}'],
+  ['Auth', 'Login', 'POST', '/auth/login', '{\n  "email": "sunitha@test.com",\n  "password": "test1234"\n}'],
+
+  ['Workspaces', 'Create workspace', 'POST', '/workspaces', '{\n  "name": "My Workspace",\n  "description": "..."\n}'],
+  ['Workspaces', 'List my workspaces', 'GET', '/workspaces', ''],
+  ['Workspaces', 'Invite member', 'POST', '/workspaces/{{workspaceId}}/invite', '{\n  "email": "{{secondUserEmail}}",\n  "role": "Member"\n}'],
+  ['Workspaces', 'Remove member', 'DELETE', '/workspaces/{{workspaceId}}/members/{{secondUserId}}', ''],
+
+  ['Projects', 'List templates', 'GET', '/project-templates', ''],
+  ['Projects', 'Create project', 'POST', '/workspaces/{{workspaceId}}/projects', '{\n  "name": "Demo Project",\n  "template": "web-app-starter",\n  "startDate": "2026-10-01",\n  "deadline": "2026-12-31"\n}'],
+  ['Projects', 'List workspace projects', 'GET', '/workspaces/{{workspaceId}}/projects', ''],
+  ['Projects', 'Get project', 'GET', '/projects/{{projectId}}', ''],
+  ['Projects', 'Update project', 'PUT', '/projects/{{projectId}}', '{\n  "name": "Demo Project (renamed)"\n}'],
+  ['Projects', 'Archive project', 'PATCH', '/projects/{{projectId}}/archive', ''],
+  ['Projects', 'Unarchive project', 'PATCH', '/projects/{{projectId}}/unarchive', ''],
+  ['Projects', 'Delete project (needs confirm)', 'DELETE', '/projects/{{projectId}}?confirm=true', ''],
+  ['Projects', 'Add milestone', 'POST', '/projects/{{projectId}}/milestones', '{\n  "title": "Beta Release",\n  "targetDate": "2026-11-20"\n}'],
+  ['Projects', 'Update milestone (mark complete)', 'PUT', '/projects/{{projectId}}/milestones/{{milestoneId}}', '{\n  "completed": true\n}'],
+  ['Projects', 'Delete milestone', 'DELETE', '/projects/{{projectId}}/milestones/{{milestoneId}}', ''],
+
+  ['Tasks', 'Create task', 'POST', '/projects/{{projectId}}/tasks', '{\n  "title": "Build login page",\n  "priority": "High",\n  "estimatedHours": 5,\n  "labels": ["frontend", "auth"],\n  "deadline": "2026-10-15"\n}'],
+  ['Tasks', 'List tasks (filters: status, priority, assignee, label, search)', 'GET', '/projects/{{projectId}}/tasks', ''],
+  ['Tasks', 'Get task', 'GET', '/tasks/{{taskId}}', ''],
+  ['Tasks', 'Update task', 'PUT', '/tasks/{{taskId}}', '{\n  "description": "Updated description",\n  "actualHours": 2\n}'],
+  ['Tasks', 'Assign task', 'PATCH', '/tasks/{{taskId}}/assign', '{\n  "assignee": "{{userId}}"\n}'],
+  ['Tasks', 'Unassign task', 'PATCH', '/tasks/{{taskId}}/assign', '{\n  "assignee": null\n}'],
+  ['Tasks', 'Move task status', 'PATCH', '/tasks/{{taskId}}/status', '{\n  "status": "In Progress"\n}'],
+  ['Tasks', 'Archive task', 'PATCH', '/tasks/{{taskId}}/archive', ''],
+  ['Tasks', 'Delete task', 'DELETE', '/tasks/{{taskId}}', ''],
+
+  ['Teams', 'Create team', 'POST', '/workspaces/{{workspaceId}}/teams', '{\n  "name": "Frontend Team"\n}'],
+  ['Teams', 'List workspace teams', 'GET', '/workspaces/{{workspaceId}}/teams', ''],
+  ['Teams', 'Get team', 'GET', '/teams/{{teamId}}', ''],
+  ['Teams', 'Add team member', 'POST', '/teams/{{teamId}}/members', '{\n  "userId": "{{secondUserId}}",\n  "role": "Member"\n}'],
+  ['Teams', 'Remove team member', 'DELETE', '/teams/{{teamId}}/members/{{secondUserId}}', ''],
+  ['Teams', 'Assign team to project', 'POST', '/teams/{{teamId}}/projects/{{projectId}}', ''],
+  ['Teams', 'Unassign team from project', 'DELETE', '/teams/{{teamId}}/projects/{{projectId}}', ''],
+  ['Teams', 'List teams on a project', 'GET', '/projects/{{projectId}}/teams', ''],
+  ['Teams', 'Delete team', 'DELETE', '/teams/{{teamId}}', ''],
+
+  ['Kanban', 'Get board (grouped by column)', 'GET', '/projects/{{projectId}}/board', ''],
+  ['Kanban', 'Update columns', 'PUT', '/projects/{{projectId}}/columns', '{\n  "columns": ["Backlog", "To Do", "In Progress", "Review", "Testing", "Done"]\n}'],
+  ['Kanban', 'Reorder a column', 'PATCH', '/projects/{{projectId}}/board/reorder', '{\n  "status": "Backlog",\n  "orderedTaskIds": ["{{taskId}}"]\n}'],
+
+  ['Calendar', 'Project calendar (week)', 'GET', '/projects/{{projectId}}/calendar?view=week&date=2026-10-07', ''],
+  ['Calendar', 'Project calendar (month)', 'GET', '/projects/{{projectId}}/calendar?view=month&date=2026-10-07', ''],
+  ['Calendar', 'Workspace calendar', 'GET', '/workspaces/{{workspaceId}}/calendar?view=week&date=2026-10-07', ''],
+
+  ['Comments', 'Create comment', 'POST', '/tasks/{{taskId}}/comments', '{\n  "text": "Looks good so far!"\n}'],
+  ['Comments', 'Reply to a comment', 'POST', '/tasks/{{taskId}}/comments', '{\n  "text": "Agreed, nice work",\n  "parentComment": "{{commentId}}"\n}'],
+  ['Comments', 'List task comments', 'GET', '/tasks/{{taskId}}/comments', ''],
+  ['Comments', 'Edit comment', 'PUT', '/comments/{{commentId}}', '{\n  "text": "Edited text"\n}'],
+  ['Comments', 'React to comment (toggles)', 'POST', '/comments/{{commentId}}/reactions', '{\n  "emoji": "👍"\n}'],
+  ['Comments', 'Delete comment', 'DELETE', '/comments/{{commentId}}', ''],
+
+  ['Files', 'List project files', 'GET', '/projects/{{projectId}}/files', ''],
+  ['Files', 'List task files', 'GET', '/tasks/{{taskId}}/files', ''],
+  ['Files', 'Get file metadata', 'GET', '/files/{{fileId}}', ''],
+  ['Files', 'Delete file', 'DELETE', '/files/{{fileId}}', ''],
+  ['Files', '(Upload a real file — see section 5 below)', 'GET', '/project-templates', ''],
+
+  ['Notifications', 'List my notifications', 'GET', '/notifications', ''],
+  ['Notifications', 'List unread only', 'GET', '/notifications?unread=true', ''],
+  ['Notifications', 'Mark one as read', 'PATCH', '/notifications/{{notificationId}}/read', ''],
+  ['Notifications', 'Mark all as read', 'PATCH', '/notifications/read-all', ''],
+  ['Notifications', 'Delete notification', 'DELETE', '/notifications/{{notificationId}}', ''],
+];
+
+function initTemplatePicker() {
+  const picker = document.getElementById('templatePicker');
+  const groups = {};
+  templates.forEach((t, i) => { (groups[t[0]] = groups[t[0]] || []).push([i, t]); });
+  picker.innerHTML = Object.entries(groups).map(([group, items]) => `
+    <optgroup label="${group}">
+      ${items.map(([i, t]) => `<option value="${i}">${t[1]}</option>`).join('')}
+    </optgroup>`).join('');
+  loadTemplate();
+}
+
+function loadTemplate() {
+  const t = templates[document.getElementById('templatePicker').value];
+  document.getElementById('reqMethod').value = t[2];
+  document.getElementById('reqUrl').value = t[3];
+  document.getElementById('reqBody').value = t[4];
+}
+
+async function sendCustom() {
+  const method = document.getElementById('reqMethod').value.trim().toUpperCase();
+  const url = document.getElementById('reqUrl').value.trim();
+  const bodyText = document.getElementById('reqBody').value.trim();
+  await req(method, url, bodyText || null);
+}
+
+initTemplatePicker();
+
+// ---------- File upload ----------
+async function uploadFile() {
+  const target = document.getElementById('uploadTarget').value;
+  const fileInput = document.getElementById('uploadFile');
+  if (!fileInput.files.length) { alert('Choose a file first.'); return; }
+
+  const idMap = { project: state.projectId, task: state.taskId, comment: state.commentId };
+  const id = idMap[target];
+  if (!id) { alert(`No {{${target}Id}} set in state yet — run the smoke test first or fill it in manually.`); return; }
+
+  const pathMap = { project: `/projects/${id}/files`, task: `/tasks/${id}/files`, comment: `/comments/${id}/files` };
+  const url = baseUrl() + pathMap[target];
+
+  const form = new FormData();
+  form.append('file', fileInput.files[0]);
+
+  const start = performance.now();
+  let status = 0, json = null, errText = null;
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer ' + state.token }, body: form });
+    status = res.status;
+    json = await res.json();
+    if (json?.file?._id) { state.fileId = json.file._id; renderStateGrid(); }
+  } catch (e) {
+    errText = e.message;
+  }
+  logEntry('POST', url, status, json, errText, Math.round(performance.now() - start));
+}
+</script>
+</body>
+</html>
