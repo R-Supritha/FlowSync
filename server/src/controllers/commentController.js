@@ -6,6 +6,7 @@ const User = require('../models/User');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { extractMentionHandles, resolveMentions } = require('../utils/mentions');
 const { notify } = require('../utils/notify');
+const { logActivity } = require('../utils/activity');
 
 function fail(res, status, message) {
   res.status(status).json({ success: false, message });
@@ -111,6 +112,15 @@ async function createComment(req, res) {
         link: { workspace: task.workspace, project: task.project, task: task._id, comment: comment._id },
       });
     }
+
+    await logActivity({
+      workspace: task.workspace,
+      project: task.project,
+      actor: req.user.id,
+      type: 'comment_added',
+      message: `${parentComment ? 'replied to a comment' : 'commented'} on "${task.title}"`,
+      task,
+    });
 
     await comment.populate('author', 'name email');
     res.status(201).json({ success: true, comment });

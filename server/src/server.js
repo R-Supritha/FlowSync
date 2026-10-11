@@ -20,12 +20,20 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const searchRoutes = require('./routes/searchRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const activityRoutes = require('./routes/activityRoutes');
+const contributionRoutes = require('./routes/contributionRoutes');
+const presenceRoutes = require('./routes/presenceRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
 
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+app.use('/api', activityRoutes);
+app.use('/api', contributionRoutes);
+app.use('/api', presenceRoutes);
+app.use('/api', analyticsRoutes);
 
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

@@ -6,6 +6,7 @@ const Task = require('../models/Task');
 const Comment = require('../models/Comment');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { UPLOAD_DIR } = require('../config/upload');
+const { logFileUploaded } = require('../utils/activity');
 
 function fail(res, status, message) {
   res.status(status).json({ success: false, message });
@@ -47,6 +48,8 @@ async function saveUploadedFile(req, res, { workspace, project, task, comment })
     task,
     comment,
   });
+
+  await logFileUploaded(asset, req.user.id);
 
   res.status(201).json({ success: true, file: assetView(asset) });
 }

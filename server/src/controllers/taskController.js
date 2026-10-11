@@ -11,6 +11,7 @@ const {
 } = require('../utils/access');
 const { wouldCreateCycle } = require('../utils/taskDependencies');
 const { notify } = require('../utils/notify');
+const { logActivity, logTaskStatusChange } = require('../utils/activity');
 
 const PRIORITIES = ['Low', 'Medium', 'High'];
 const DONE_STATUS = 'Done';
@@ -211,6 +212,15 @@ async function createTask(req, res) {
     applyCompletion(task);
     await task.save();
 
+        await logActivity({
+      workspace: project.workspace,
+      project: project._id,
+      actor: req.user.id,
+      type: 'task_created',
+      message: `created task "${task.title}"`,
+      task,
+    });
+
     if (task.assignee) {
       await notify({
         user: task.assignee,
@@ -317,12 +327,29 @@ async function updateTask(req, res) {
     }
 
     const statusChanged = data.status && data.status !== task.status;
+    const previousStatus = task.status;   // <- new line
     task.set(data);
     if (statusChanged) {
       task.position = await nextPosition(project._id, task.status);
       applyCompletion(task);
     }
     await task.save();
+
+    if (statusChanged) {
+      await logTaskStatusChange({ task, project, actor: req.user.id, previousStatus });
+    }
+    const otherFields = Object.keys(data).filter((k) => k !== 'status');
+    if (otherFields.length) {
+      await logActivity({
+        workspace: project.workspace,
+        project: project._id,
+        actor: req.user.id,
+        type: 'task_updated',
+        message: `updated "${task.title}" (${otherFields.join(', ')})`,
+        task,
+        meta: { fields: otherFields },
+      });
+    }
 
     res.json({ success: true, task });
   } catch (error) {
@@ -334,7 +361,7 @@ async function deleteTask(req, res) {
   try {
     const loaded = await loadTask(req, res);
     if (!loaded) return;
-    const { task, role } = loaded;
+    const { task, project, role } = loaded;
 
     const isReporter = String(task.reporter) === String(req.user.id);
     if (!isManagerRole(role) && !(role === 'Member' && isReporter)) {
@@ -342,6 +369,16 @@ async function deleteTask(req, res) {
     }
 
     await task.deleteOne();
+
+    await logActivity({
+      workspace: project.workspace,
+      project: project._id,
+      actor: req.user.id,
+      type: 'task_deleted',
+      message: `deleted task "${task.title}"`,
+      taskTitle: task.title,
+    });
+
     // Anything that was blocked by this task is no longer blocked.
     await Task.updateMany({ dependencies: task._id }, { $pull: { dependencies: task._id } });
 
@@ -368,6 +405,16 @@ async function assignTask(req, res) {
     await task.populate('assignee', 'name email');
 
     if (data.assignee) {
+      await logActivity({
+        workspace: project.workspace,
+        project: project._id,
+        actor: req.user.id,
+        type: 'task_assigned',
+        message: `assigned "${task.title}" to ${task.assignee.name}`,
+        task,
+        meta: { assignee: data.assignee },
+      });
+
       await notify({
         user: data.assignee,
         actor: req.user.id,
@@ -409,7 +456,7 @@ async function updateTaskStatus(req, res) {
     }
     applyCompletion(task);
     await task.save();
-
+    await logTaskStatusChange({ task, project, actor: req.user.id, previousStatus });
     res.json({ success: true, task, previousStatus });
   } catch (error) {
     serverError(res, 'Failed to update task status', error);
