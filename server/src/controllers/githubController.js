@@ -1,11 +1,10 @@
 const Project = require('../models/Project');
 const Workspace = require('../models/Workspace');
 const User = require('../models/User');
+const Task = require('../models/Task');
 const GithubLink = require('../models/GithubLink');
 const GithubEvent = require('../models/GithubEvent');
-const ActivityLog = require('../models/ActivityLog');
-const { publish } = require('../utils/activityBus');
-const { categoryFor } = require('../utils/activity');
+const { recordActivity, makeTaskIndex, applyEventToTasks, refFor } = require('../utils/githubTaskLinks');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { encrypt, decrypt } = require('../utils/tokenCrypto');
 const { GithubError, getRepo, listCommits, listPulls } = require('../utils/githubClient');
@@ -163,8 +162,16 @@ async function syncRepository(req, res) {
       .lean();
     const byLogin = new Map(users.map((u) => [u.githubUsername.toLowerCase(), u._id]));
 
+    // last-6-characters of every active task id, so FS-xxxxxx references can be resolved
+    const activeTasks = events.length
+      ? await Task.find({ project: project._id, isArchived: false }).select('_id').lean()
+      : [];
+    const taskIndex = makeTaskIndex(activeTasks);
+
     const recorded = { commits: 0, prsOpened: 0, prsMerged: 0 };
     const unmatched = new Set();
+    const tasksMoved = [];
+    const linkNotes = new Set();
     let duplicates = 0;
 
     for (const ev of events) {
@@ -180,21 +187,26 @@ async function syncRepository(req, res) {
 
       const matchedId = ev.login ? byLogin.get(ev.login.toLowerCase()) : null;
       if (ev.login && !matchedId) unmatched.add(ev.login);
+      // Commits by people without a matching profile are credited to whoever linked the repo.
+      const actor = matchedId || link.linkedBy;
 
       try {
-        const doc = await ActivityLog.create({
+        // 1. Move any task this commit / PR mentions (FR14). Done first, so a failure here
+        //    leaves nothing half-recorded and the whole event is retried on the next sync.
+        const linked = await applyEventToTasks({ ev, project, index: taskIndex, actor });
+        tasksMoved.push(...linked.moved);
+        linked.notes.forEach((n) => linkNotes.add(n));
+
+        // 2. Record the commit / PR itself.
+        await recordActivity({
           workspace: project.workspace,
           project: project._id,
-          // Commits by people without a matching profile are credited to whoever linked the repo.
-          actor: matchedId || link.linkedBy,
+          actor,
           type: ev.type,
-          category: categoryFor(ev.type),
           message: matchedId || !ev.login ? ev.message : `${ev.message} (by @${ev.login})`,
           meta: { ...ev.meta, matchedUser: Boolean(matchedId) },
           createdAt: ev.date, // the real commit / PR time, so the weekly dots land on the right day
         });
-        await doc.populate('actor', 'name email');
-        publish(doc.toObject());
       } catch (error) {
         await GithubEvent.deleteOne({ project: project._id, key: ev.key }); // let the next sync retry it
         throw error;
@@ -216,6 +228,8 @@ async function syncRepository(req, res) {
       fetched: { commits: commits.length, pullRequests: pulls.length },
       recorded,
       skippedAlreadyRecorded: duplicates,
+      tasksMoved,
+      taskLinkNotes: [...linkNotes].slice(0, 20),
       unmatchedGithubUsers: [...unmatched],
       lastSyncedAt: now,
     });
@@ -224,4 +238,27 @@ async function syncRepository(req, res) {
   }
 }
 
-module.exports = { linkRepository, getLink, unlinkRepository, syncRepository };
+// GET /projects/:projectId/github/task-refs
+// The reference to put in a commit message, branch name or PR title for each task.
+async function listTaskRefs(req, res) {
+  try {
+    const loaded = await loadProject(req, res);
+    if (!loaded) return;
+    const tasks = await Task.find({ project: loaded.project._id, isArchived: false })
+      .select('title status')
+      .sort({ createdAt: 1 })
+      .limit(200)
+      .lean();
+    res.json({
+      success: true,
+      howTo:
+        'Put a task reference in a commit message, branch name or PR title, for example "FS-0140ad start login page". ' +
+        'A linked commit moves the task to In Progress, an opened PR to Review and a merged PR to Done (tasks only move forward).',
+      tasks: tasks.map((t) => ({ _id: t._id, ref: refFor(t._id), title: t.title, status: t.status })),
+    });
+  } catch (error) {
+    serverError(res, 'Failed to list task references', error);
+  }
+}
+
+module.exports = { linkRepository, getLink, unlinkRepository, syncRepository, listTaskRefs };

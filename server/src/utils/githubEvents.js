@@ -35,6 +35,7 @@ function buildEvents({ repo, commits, pulls, since }) {
       login,
       date: when,
       message: `committed "${firstLine(fullMessage)}" (${c.sha.slice(0, 7)})`,
+      text: fullMessage,
       meta: {
         source: 'github',
         repo,
@@ -59,6 +60,9 @@ function buildEvents({ repo, commits, pulls, since }) {
       branch: p.head && p.head.ref,
     };
 
+    // Where a task reference (FS-xxxxxx) may appear: title, branch name, description.
+    const text = [p.title, p.head && p.head.ref, p.body].filter(Boolean).join('\n').slice(0, 2000);
+
     const opened = new Date(p.created_at);
     if (!Number.isNaN(opened.getTime()) && opened >= since) {
       events.push({
@@ -67,6 +71,7 @@ function buildEvents({ repo, commits, pulls, since }) {
         login,
         date: opened,
         message: `opened PR #${p.number} "${firstLine(p.title)}"`,
+        text,
         meta,
       });
     }
@@ -80,6 +85,7 @@ function buildEvents({ repo, commits, pulls, since }) {
           login,
           date: merged,
           message: `merged PR #${p.number} "${firstLine(p.title)}"`,
+          text,
           meta,
         });
       }
