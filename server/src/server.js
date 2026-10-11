@@ -24,6 +24,7 @@ const activityRoutes = require('./routes/activityRoutes');
 const contributionRoutes = require('./routes/contributionRoutes');
 const presenceRoutes = require('./routes/presenceRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const githubRoutes = require('./routes/githubRoutes');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
 
