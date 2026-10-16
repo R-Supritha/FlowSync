@@ -65,6 +65,7 @@ app.use('/api', notificationRoutes);
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use('/api', searchRoutes);
 app.use('/api', profileRoutes);
+app.use('/api', githubRoutes);
 
 app.get('/api/test-protected', protect, (req, res) => {
   res.json({ success: true, message: 'You are authenticated', user: req.user });
