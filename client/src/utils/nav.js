@@ -12,6 +12,8 @@ export const VIEWS = {
 const PAGES = {
   '/': { label: 'Dashboard' },
   '/projects': { label: 'Projects' },
+  '/projects/new': { label: 'New project' },
+  '/projects/new/ai': { label: 'AI project generator' },
   '/teams': { label: 'Teams' },
   '/members': { label: 'Members' },
   '/calendar': { label: 'Calendar' },

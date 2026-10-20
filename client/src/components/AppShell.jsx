@@ -3,12 +3,14 @@ import { useDispatch, useSelector } from 'react-redux'
 import { Outlet, useLocation } from 'react-router-dom'
 import { fetchWorkspaces, fetchPeople } from '../store/workspacesSlice'
 import { fetchProjects } from '../store/projectsSlice'
-import { setSearchOpen, toggleSidebar, togglePanel, openTab, closeTask } from '../store/uiSlice'
+import { setSearchOpen, toggleSidebar, togglePanel, openTab, closeTask, setTheme, setFontSize, setLanguage } from '../store/uiSlice'
 import { fetchWorkspacePresence } from '../store/presenceSlice'
+import { settingsApi } from '../api/endpoints'
 import { routeMeta } from '../utils/nav'
 import useTheme from '../hooks/useTheme'
 import useHeartbeat from '../hooks/useHeartbeat'
 import { ErrorState, Spinner, Toasts } from './ui'
+import ErrorBoundary from './ErrorBoundary'
 import TitleBar from './layout/TitleBar'
 import ActivityBar from './layout/ActivityBar'
 import Sidebar from './layout/Sidebar'
@@ -33,6 +35,26 @@ export default function AppShell() {
   useEffect(() => {
     if (status === 'idle') dispatch(fetchWorkspaces())
   }, [status, dispatch])
+
+  // Restore saved appearance preferences from the backend (FR22).
+  // Only applies values once the user has actually saved settings, so a fresh
+  // device's local defaults are not overwritten while the request is in flight.
+  useEffect(() => {
+    let alive = true
+    settingsApi
+      .get()
+      .then((res) => {
+        if (!alive || !res.configured) return
+        const s = res.settings || {}
+        if (s.theme) dispatch(setTheme(s.theme))
+        if (s.fontSize) dispatch(setFontSize(s.fontSize))
+        if (s.language) dispatch(setLanguage(s.language))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [dispatch])
 
   // When the active workspace changes, reload its projects, member names and presence.
   useEffect(() => {
@@ -82,7 +104,9 @@ export default function AppShell() {
           <EditorTabs />
           <Breadcrumbs />
         </div>
-        <div className="main-body">{body}</div>
+        <div className="main-body">
+          <ErrorBoundary key={location.pathname}>{body}</ErrorBoundary>
+        </div>
         {panelOpen && <BottomPanel />}
       </main>
       <StatusBar />

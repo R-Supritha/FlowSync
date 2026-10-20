@@ -25,6 +25,9 @@ const contributionRoutes = require('./routes/contributionRoutes');
 const presenceRoutes = require('./routes/presenceRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const githubRoutes = require('./routes/githubRoutes');
+const ocrRoutes = require('./routes/ocrRoutes');
+const aiProjectRoutes = require('./routes/aiProjectRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
 
@@ -66,6 +69,9 @@ app.use('/uploads', express.static(UPLOAD_DIR));
 app.use('/api', searchRoutes);
 app.use('/api', profileRoutes);
 app.use('/api', githubRoutes);
+app.use('/api', ocrRoutes);
+app.use('/api', aiProjectRoutes);
+app.use('/api', settingsRoutes);
 
 app.get('/api/test-protected', protect, (req, res) => {
   res.json({ success: true, message: 'You are authenticated', user: req.user });

@@ -25,10 +25,16 @@ const projectSchema = new mongoose.Schema(
     labels: { type: [String], default: [] },
     milestones: [milestoneSchema],
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    // Client-supplied key that makes AI project creation idempotent (FR11).
+    generationKey: { type: String, trim: true },
     isArchived: { type: Boolean, default: false },
     archivedAt: { type: Date },
   },
   { timestamps: true }
 );
+
+// Sparse unique index: retries with the same key return the original project
+// instead of creating a duplicate; projects without a key are unaffected.
+projectSchema.index({ generationKey: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('Project', projectSchema);

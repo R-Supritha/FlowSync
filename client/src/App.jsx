@@ -6,6 +6,7 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import ProjectsPage from './pages/Projects'
 import NewProject from './pages/NewProject'
+import AiProjectGenerator from './pages/AiProjectGenerator'
 import Board from './pages/Board'
 import ProjectCalendarPage from './pages/ProjectCalendar'
 import ProjectActivityPage from './pages/ProjectActivity'
@@ -34,6 +35,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/new" element={<NewProject />} />
+          <Route path="projects/new/ai" element={<AiProjectGenerator />} />
           <Route path="projects/:projectId/board" element={<Board />} />
           <Route path="projects/:projectId/calendar" element={<ProjectCalendarPage />} />
           <Route path="projects/:projectId/activity" element={<ProjectActivityPage />} />

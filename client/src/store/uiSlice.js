@@ -17,6 +17,7 @@ export const PANEL_TABS = [
 const THEME_KEY = 'flowsync_theme'
 const FONT_KEY = 'flowsync_font'
 const NEXT_KEY = 'flowsync_notifications'
+const LANG_KEY = 'flowsync_lang'
 
 function read(key, fallback) {
   try {
@@ -42,6 +43,7 @@ const uiSlice = createSlice({
   initialState: {
     theme: read(THEME_KEY, 'system'), // 'system' follows the OS light/dark setting
     fontSize: Number(read(FONT_KEY, '14')),
+    language: read(LANG_KEY, 'en'),
     sidebarOpen: true,
     panelOpen: false,
     panelTab: 'activity',
@@ -61,6 +63,10 @@ const uiSlice = createSlice({
     setFontSize(state, action) {
       state.fontSize = action.payload
       localStorage.setItem(FONT_KEY, String(action.payload))
+    },
+    setLanguage(state, action) {
+      state.language = action.payload
+      localStorage.setItem(LANG_KEY, action.payload)
     },
     setNotificationPrefs(state, action) {
       state.notificationPrefs = action.payload
@@ -121,6 +127,7 @@ const uiSlice = createSlice({
 export const {
   setTheme,
   setFontSize,
+  setLanguage,
   setNotificationPrefs,
   toggleSidebar,
   setSidebar,

@@ -11,8 +11,10 @@ import { formatting } from './activityHelpers'
 const POLL_MS = 45000
 
 // Reads an SSE stream over fetch() so the JWT can stay in the Authorization header
-// instead of the URL. Pushes live events until the component unmounts.
-async function streamProjectActivity(projectId, token, onActivity, onState) {
+// instead of the URL. Pushes live events until the component unmounts. Returns the
+// AbortController synchronously (callers abort it on cleanup), while the stream
+// itself is consumed asynchronously.
+function streamProjectActivity(projectId, token, onActivity, onState) {
   const controller = new AbortController()
   async function run() {
     let res

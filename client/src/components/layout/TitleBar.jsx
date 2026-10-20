@@ -9,6 +9,7 @@ import {
   LogOut,
   Search,
   Settings,
+  Sparkles,
   UserPlus,
   Zap,
 } from 'lucide-react'
@@ -75,6 +76,9 @@ export default function TitleBar() {
       </MenuItem>
       <MenuItem icon={FilePlus2} disabled={!canCreate} onClick={() => { setDialog('project'); close() }}>
         New project…
+      </MenuItem>
+      <MenuItem icon={Sparkles} disabled={!canCreate} onClick={() => { navigate('/projects/new/ai'); close() }}>
+        New AI project…
       </MenuItem>
       <MenuItem icon={UserPlus} disabled={!canInviteMembers(role) || !workspace} onClick={() => { setDialog('invite'); close() }}>
         Invite member…

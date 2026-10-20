@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { NavLink, useLocation } from 'react-router-dom'
-import { Boxes, ChevronDown, ChevronRight, Milestone, Plus, Users } from 'lucide-react'
+import { Boxes, ChevronDown, ChevronRight, Milestone, Plus, Sparkles, Users } from 'lucide-react'
 import {
   selectCurrentWorkspace,
   selectMyRole,
@@ -86,6 +86,13 @@ export default function Sidebar() {
             <Plus size={13} aria-hidden="true" />
           </button>
         </div>
+        <NavLink
+          to="/projects/new/ai"
+          className={({ isActive }) => `side-link ai-link${isActive ? ' active' : ''}`}
+        >
+          <Sparkles size={14} aria-hidden="true" />
+          <span>AI project (FR11/12)</span>
+        </NavLink>
         {projects.length === 0 && <div className="fs-muted side-empty">No projects yet</div>}
         <ul className="side-tree">
           {projects.map((p) => {

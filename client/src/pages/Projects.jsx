@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { Link } from 'react-router-dom'
-import { Boxes, CalendarPlus, Eye, EyeOff } from 'lucide-react'
+import { Boxes, CalendarPlus, Eye, EyeOff, Sparkles } from 'lucide-react'
 import { fetchProjects } from '../store/projectsSlice'
 import { selectCurrentWorkspace, selectMyRole } from '../store/workspacesSlice'
 import { canManageColumns } from '../utils/roles'
@@ -45,9 +45,14 @@ export default function Projects() {
             Show archived
           </label>
           {manager && (
-            <button type="button" className="fs-btn primary" onClick={() => navigate('/projects/new')}>
-              <Boxes size={14} aria-hidden="true" /> New project
-            </button>
+            <>
+              <button type="button" className="fs-btn" onClick={() => navigate('/projects/new/ai')}>
+                <Sparkles size={14} aria-hidden="true" /> Generate with AI
+              </button>
+              <button type="button" className="fs-btn primary" onClick={() => navigate('/projects/new')}>
+                <Boxes size={14} aria-hidden="true" /> New project
+              </button>
+            </>
           )}
         </div>
       </div>

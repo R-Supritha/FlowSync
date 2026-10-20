@@ -89,9 +89,13 @@ export function Avatar({ name, url, size = 24, presence, title }) {
 }
 
 // A small accessible popover used for menus (account, presence, notifications, filters).
+// The menu flips/clamps so it always stays inside the viewport, even for triggers
+// sitting against the left or right edges of the window.
 export function Dropdown({ label, button, children, align = 'right', width = 260, className = '' }) {
   const [open, setOpen] = useState(false)
+  const [shift, setShift] = useState(0)
   const ref = useRef(null)
+  const menuRef = useRef(null)
   const id = useId()
 
   useEffect(() => {
@@ -108,6 +112,32 @@ export function Dropdown({ label, button, children, align = 'right', width = 260
     }
   }, [open])
 
+  // Keep the open menu within the viewport by nudging it horizontally when either
+  // edge would overflow. Re-measures on open, resize and scroll.
+  useEffect(() => {
+    if (!open) return undefined
+    const measure = () => {
+      const menu = menuRef.current
+      if (!menu) return
+      const margin = 8
+      const rect = menu.getBoundingClientRect()
+      let next = 0
+      if (rect.left < margin) {
+        next = margin - rect.left
+      } else if (rect.right > window.innerWidth - margin) {
+        next = window.innerWidth - margin - rect.right
+      }
+      setShift(next)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [open, align, width])
+
   return (
     <div className={`dropdown ${className}`} ref={ref}>
       <button
@@ -118,16 +148,20 @@ export function Dropdown({ label, button, children, align = 'right', width = 260
         aria-controls={id}
         aria-label={label}
         title={label}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen((o) => {
+          if (!o) setShift(0)
+          return !o
+        })}
       >
         {button}
       </button>
       {open && (
         <div
           id={id}
+          ref={menuRef}
           role="menu"
           className="dropdown-menu"
-          style={{ [align]: 0, width }}
+          style={{ [align]: 0, width, transform: shift ? `translateX(${shift}px)` : undefined }}
           onClick={(e) => {
             // Close when a menu item is activated, but not when interacting with form fields.
             if (e.target.closest('[data-menu-close]')) setOpen(false)

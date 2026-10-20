@@ -315,6 +315,16 @@ a {
 .side-link.active {
   background: var(--bg-active);
 }
+.side-link.ai-link {
+  margin-top: 4px;
+  color: var(--accent);
+  border: 1px dashed var(--border);
+}
+.side-link.ai-link.active {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--bg-active);
+}
 .main {
   grid-area: main;
   min-width: 0;
@@ -748,6 +758,7 @@ code {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   padding: 4px;
   max-height: 70vh;
+  max-width: calc(100vw - 16px);
   overflow-y: auto;
 }
 .dropdown-head {

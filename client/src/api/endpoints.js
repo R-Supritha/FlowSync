@@ -176,3 +176,31 @@ export const calendarApi = {
   workspace: (workspaceId, params) =>
     api.get(`/workspaces/${workspaceId}/calendar`, { params }).then(data),
 }
+
+// FR12: extract readable text from images, scanned PDFs, DOCX and PPTX.
+export const ocrApi = {
+  extract: (file, onProgress) => {
+    const form = new FormData()
+    form.append('file', file)
+    return api
+      .post('/ocr/extract', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+          if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+        },
+      })
+      .then(data)
+  },
+}
+
+// FR11: AI project bootstrap (requirements -> structured plan -> real project).
+export const aiProjectApi = {
+  generatePlan: (requirements) => api.post('/ai/generate-plan', { requirements }).then(data),
+  createFromPlan: (workspaceId, body) =>
+    api.post(`/workspaces/${workspaceId}/projects/generate`, body).then(data),
+}
+
+export const settingsApi = {
+  get: () => api.get('/settings').then(data),
+  update: (body) => api.put('/settings', body).then(data),
+}
