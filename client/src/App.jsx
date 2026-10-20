@@ -1,22 +1,29 @@
 import { Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import AppShell from './components/AppShell'
-import ProjectLayout from './components/ProjectLayout'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
-import Home from './pages/Home'
-import Members from './pages/Members'
-import Teams from './pages/Teams'
+import ProjectsPage from './pages/Projects'
+import NewProject from './pages/NewProject'
+import AiProjectGenerator from './pages/AiProjectGenerator'
+import ProjectFiles from './pages/ProjectFiles'
 import Board from './pages/Board'
-import GitHubPanel from './pages/GitHubPanel'
-import Milestones from './pages/Milestones'
-import ProjectTeams from './pages/ProjectTeams'
-import { ProjectActivity, ProjectAnalytics, ProjectCalendar, ProjectFiles } from './pages/ProjectViews'
-import { WorkspaceActivity, WorkspaceAnalytics, WorkspaceCalendar } from './pages/WorkspacePages'
+import ProjectCalendarPage from './pages/ProjectCalendar'
+import ProjectActivityPage from './pages/ProjectActivity'
+import ProjectAnalyticsPage from './pages/ProjectAnalytics'
+import ProjectGithubPage from './pages/ProjectGithub'
+import ProjectMilestonesPage from './pages/ProjectMilestones'
+import Calendar from './pages/Calendar'
+import Analytics from './pages/Analytics'
+import Github from './pages/Github'
 import Notifications from './pages/Notifications'
+import TeamsPage from './pages/TeamsPage'
+import TeamDetail from './pages/TeamDetail'
+import Members from './pages/Members'
 import Profile from './pages/Profile'
-import Settings from './pages/Settings'
+import PublicProfile from './pages/PublicProfile'
+import SettingsPage from './pages/SettingsPage'
 import NotFound from './pages/NotFound'
 
 export default function App() {
@@ -27,26 +34,26 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route index element={<Dashboard />} />
-          <Route path="projects" element={<Home />} />
-          <Route path="teams" element={<Teams />} />
-          <Route path="members" element={<Members />} />
-          <Route path="calendar" element={<WorkspaceCalendar />} />
-          <Route path="activity" element={<WorkspaceActivity />} />
-          <Route path="analytics" element={<WorkspaceAnalytics />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/new" element={<NewProject />} />
+          <Route path="projects/new/ai" element={<AiProjectGenerator />} />
+          <Route path="projects/:projectId/board" element={<Board />} />
+          <Route path="projects/:projectId/calendar" element={<ProjectCalendarPage />} />
+          <Route path="projects/:projectId/activity" element={<ProjectActivityPage />} />
+          <Route path="projects/:projectId/analytics" element={<ProjectAnalyticsPage />} />
+          <Route path="projects/:projectId/github" element={<ProjectGithubPage />} />
+          <Route path="projects/:projectId/milestones" element={<ProjectMilestonesPage />} />
+          <Route path="projects/:projectId/files" element={<ProjectFiles />} />
+          <Route path="calendar" element={<Calendar />} />
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="github" element={<Github />} />
           <Route path="notifications" element={<Notifications />} />
+          <Route path="teams" element={<TeamsPage />} />
+          <Route path="teams/:teamId" element={<TeamDetail />} />
+          <Route path="members" element={<Members />} />
           <Route path="profile" element={<Profile />} />
-          <Route path="users/:id" element={<Profile />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="projects/:projectId" element={<ProjectLayout />}>
-            <Route path="board" element={<Board />} />
-            <Route path="calendar" element={<ProjectCalendar />} />
-            <Route path="activity" element={<ProjectActivity />} />
-            <Route path="analytics" element={<ProjectAnalytics />} />
-            <Route path="github" element={<GitHubPanel />} />
-            <Route path="files" element={<ProjectFiles />} />
-            <Route path="milestones" element={<Milestones />} />
-            <Route path="teams" element={<ProjectTeams />} />
-          </Route>
+          <Route path="profile/:id" element={<PublicProfile />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<NotFound />} />

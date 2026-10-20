@@ -1,97 +1,134 @@
-import { useSelector } from 'react-redux'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
+import { Link, useNavigate } from 'react-router-dom'
+import { CalendarDays, Flag, FolderKanban, Inbox, Timer } from 'lucide-react'
 import { dashboardApi } from '../api/endpoints'
-import useAsync from '../hooks/useAsync'
-import { formatDate, isOverdue } from '../utils/format'
-import { EmptyState, ErrorState, Spinner } from '../components/ui'
-import { WorkspaceForm } from '../components/dialogs'
-
-const projectOf = (t) => t.project?._id || t.project
-const projectName = (t) => t.projectName || t.project?.name || ''
-
-function TaskRow({ task }) {
-  return (
-    <li className="list-row">
-      <Link to={`/projects/${projectOf(task)}/board?task=${task._id}`}>{task.title}</Link>
-      <span className="fs-muted"> {projectName(task)}</span>
-      <span style={{ flex: 1 }} />
-      <span className={`badge ${String(task.priority).toLowerCase()}`}>{task.priority}</span>
-      {task.deadline && (
-        <span className={`badge${isOverdue(task.deadline, task.status) ? ' overdue' : ''}`}>{formatDate(task.deadline)}</span>
-      )}
-    </li>
-  )
-}
-
-function Card({ title, empty, children, count }) {
-  return (
-    <section className="panel-card" aria-label={title}>
-      <h3>{title}</h3>
-      {count === 0 ? <p className="fs-muted" style={{ margin: 0 }}>{empty}</p> : <ul className="list">{children}</ul>}
-    </section>
-  )
-}
+import { errorMessage } from '../api/client'
+import { openTask } from '../store/uiSlice'
+import { formatDate, isOverdue, taskRef } from '../utils/format'
+import { EmptyState, ErrorState, Skeleton } from '../components/ui'
 
 export default function Dashboard() {
-  const workspaces = useSelector((s) => s.workspaces.items)
-  const wsStatus = useSelector((s) => s.workspaces.status)
-  const { data, error, loading, reload } = useAsync(() => dashboardApi.get(), [])
+  const dispatch = useDispatch()
+  const navigate = useNavigate()
+  const [data, setData] = useState(null)
+  const [status, setStatus] = useState('loading') // loading | ready
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+  const user = useSelector((s) => s.auth.user)
 
-  if (wsStatus === 'ready' && workspaces.length === 0) {
-    return (
-      <div className="page" style={{ maxWidth: 460 }}>
-        <EmptyState title="Create your first workspace">A workspace holds your projects, teams and members.</EmptyState>
-        <div className="panel-card"><WorkspaceForm autoFocus /></div>
-      </div>
-    )
-  }
-  if (error) return <ErrorState message={error} onRetry={reload} />
-  if (loading || !data) return <Spinner label="Loading your dashboard…" />
+  useEffect(() => {
+    let alive = true
+    dashboardApi
+      .get()
+      .then((d) => {
+        if (!alive) return
+        setData(d)
+        setError('')
+      })
+      .catch((e) => alive && setError(errorMessage(e, 'Failed to load the dashboard')))
+      .finally(() => alive && setStatus('ready'))
+    return () => {
+      alive = false
+    }
+  }, [reload])
 
-  const { summary: s } = data
-  const stats = [
-    ['Workspaces', s.workspaces], ['Projects', s.projects], ['Open tasks', s.openTasks],
-    ['Overdue', s.overdueTasks, s.overdueTasks > 0], ['Due soon', s.dueSoonTasks], ['Unread', s.unreadNotifications],
-  ]
+  if (status === 'loading') return <Skeleton lines={8} />
+  if (error) return <ErrorState message={error} onRetry={() => setReload((r) => r + 1)} />
 
   return (
-    <div className="page">
-      <h1>Dashboard</h1>
+    <div className="page dashboard">
+      <h1>Hello, {user?.name?.split(' ')[0] || 'there'}</h1>
+      <p className="fs-muted" style={{ marginTop: 0 }}>Here is what needs your attention across your workspaces.</p>
+
       <div className="stat-grid">
-        {stats.map(([label, value, bad]) => (
-          <div key={label} className="stat">
-            <div className="stat-value" style={bad ? { color: 'var(--danger)' } : undefined}>{value}</div>
-            <div className="fs-muted">{label}</div>
+        <Stat icon={FolderKanban} label="Projects" value={data.summary.projects} to="/projects" />
+        <Stat icon={Inbox} label="Open tasks" value={data.summary.openTasks} />
+        <Stat icon={Flag} label="Due in 7 days" value={data.summary.dueSoonTasks} />
+        <Stat icon={Timer} label="Overdue" value={data.summary.overdueTasks} tone={data.summary.overdueTasks ? 'danger' : ''} />
+      </div>
+
+      <div className="dash-grid">
+        <section className="panel">
+          <div className="panel-head">
+            <h3>My tasks</h3>
+            <span className="fs-muted" style={{ fontSize: 12 }}>{data.summary.openTasks} open</span>
           </div>
-        ))}
+          {data.myTasks.length === 0 && <EmptyState title="Nothing assigned">All clear!</EmptyState>}
+          <TaskList tasks={data.myTasks} onOpen={(t) => dispatch(openTask(t._id))} />
+        </section>
+
+        <section className="panel">
+          <div className="panel-head"><h3>Upcoming deadlines</h3></div>
+          {data.upcomingDeadlines.length === 0 && <EmptyState title="No deadlines soon" />}
+          <TaskList tasks={data.upcomingDeadlines} onOpen={(t) => dispatch(openTask(t._id))} />
+        </section>
       </div>
-      <div className="card-grid" style={{ marginTop: 16 }}>
-        <Card title="My tasks" empty="No open tasks assigned to you." count={data.myTasks.length}>
-          {data.myTasks.map((t) => <TaskRow key={t._id} task={t} />)}
-        </Card>
-        <Card title="Upcoming deadlines" empty="Nothing due in the next 7 days." count={data.upcomingDeadlines.length}>
-          {data.upcomingDeadlines.map((t) => <TaskRow key={t._id} task={t} />)}
-        </Card>
-        <Card title="Upcoming milestones" empty="No upcoming milestones." count={data.upcomingMilestones.length}>
+
+      <section className="panel">
+        <div className="panel-head"><h3>Upcoming milestones</h3></div>
+        {data.upcomingMilestones.length === 0 && <EmptyState title="Nothing scheduled" />}
+        <div className="milestone-list">
           {data.upcomingMilestones.map((m) => (
-            <li key={m._id} className="list-row">
-              <Link to={`/projects/${m.project}/milestones`}>{m.title}</Link>
-              <span className="fs-muted"> {m.projectName}</span>
-              <span style={{ flex: 1 }} />
-              <span className="badge">{formatDate(m.targetDate)}</span>
-            </li>
+            <button key={m._id} type="button" className="milestone-card" onClick={() => navigate(`/projects/${m.project}/milestones`)}>
+              <span className="bullet" />
+              <span className="ellipsis">
+                <strong>{m.title}</strong>
+                <span className="fs-muted block-ellipsis">{m.projectName}</span>
+              </span>
+              <span className="fs-muted">{formatDate(m.targetDate)}</span>
+            </button>
           ))}
-        </Card>
-        <Card title="Recent projects" empty="No projects yet." count={data.recentProjects.length}>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-head"><h3>Recent projects</h3></div>
+        <div className="recent-grid">
           {data.recentProjects.map((p) => (
-            <li key={p._id} className="list-row">
-              <Link to={`/projects/${p._id}/board`}>{p.name}</Link>
-              <span style={{ flex: 1 }} />
-              {p.deadline && <span className="badge">{formatDate(p.deadline)}</span>}
-            </li>
+            <Link key={p._id} to={`/projects/${p._id}/board`} className="recent-card">
+              <CalendarDays size={15} aria-hidden="true" />
+              <span className="ellipsis">{p.name}</span>
+              <span className="fs-muted" style={{ fontSize: 11 }}>{p.deadline ? `due ${formatDate(p.deadline)}` : 'no deadline'}</span>
+            </Link>
           ))}
-        </Card>
-      </div>
+        </div>
+      </section>
     </div>
+  )
+}
+
+function Stat({ icon: Icon, label, value, tone = '', to = '' }) {
+  const inner = (
+    <div className="stat">
+      <span className="stat-value"><Icon size={15} aria-hidden="true" /> <span className={tone}>{value}</span></span>
+      <span className="stat-label">{label}</span>
+    </div>
+  )
+  return to ? <Link to={to} className="stat-link">{inner}</Link> : inner
+}
+
+function TaskList({ tasks, onOpen }) {
+  if (!tasks.length) return null
+  return (
+    <table className="fs-table">
+      <thead>
+        <tr><th>Ref</th><th>Title</th><th>Project</th><th>Status</th><th>Priority</th><th>Deadline</th></tr>
+      </thead>
+      <tbody>
+        {tasks.map((t) => (
+          <tr key={t._id} style={{ cursor: 'pointer' }} onClick={() => onOpen(t)}>
+            <td><span className="task-ref">{taskRef(t._id)}</span></td>
+            <td className="ellipsis" style={{ maxWidth: 320 }}>{t.title}</td>
+            <td className="fs-muted ellipsis" style={{ maxWidth: 200 }}>{t.projectName || '—'}</td>
+            <td><span className="badge">{t.status}</span></td>
+            <td><span className={`badge ${String(t.priority).toLowerCase()}`}>{t.priority}</span></td>
+            <td className={t.deadline && isOverdue(t.deadline, t.status) ? 'danger-text' : ''}>
+              {formatDate(t.deadline) || '—'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }

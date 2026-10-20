@@ -1,6 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
+import { createPortal } from 'react-dom'
+import { X } from 'lucide-react'
 import { dismissToast } from '../store/uiSlice'
+import { initials } from '../utils/format'
 
 export function Spinner({ label = 'Loading…' }) {
   return (
@@ -11,11 +14,12 @@ export function Spinner({ label = 'Loading…' }) {
   )
 }
 
-export function EmptyState({ title, children }) {
+export function EmptyState({ title, children, action }) {
   return (
     <div className="state-box">
       <p style={{ color: 'var(--fg)', fontWeight: 600, margin: '0 0 6px' }}>{title}</p>
-      {children}
+      {children && <p className="fs-muted" style={{ margin: 0 }}>{children}</p>}
+      {action && <div style={{ marginTop: 12 }}>{action}</div>}
     </div>
   )
 }
@@ -35,12 +39,165 @@ export function ErrorState({ message, onRetry }) {
   )
 }
 
-// Open dialogs, newest last. Only the newest one answers Escape and Tab, so a confirmation
-// inside the task drawer closes alone instead of closing both.
-const modalStack = []
-const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+export function Skeleton({ lines = 3 }) {
+  return (
+    <div aria-hidden="true" style={{ display: 'grid', gap: 8, padding: 12 }}>
+      {Array.from({ length: lines }).map((_, i) => (
+        <div key={i} className="skeleton" style={{ width: `${90 - i * 10}%` }} />
+      ))}
+    </div>
+  )
+}
 
-export function Modal({ title, onClose, children, side = false }) {
+export function Chip({ children, tone = 'default', title }) {
+  return (
+    <span className={`chip chip-${tone}`} title={title}>
+      {children}
+    </span>
+  )
+}
+
+export function PriorityBadge({ priority }) {
+  const tone = String(priority || '').toLowerCase()
+  return <span className={`badge ${tone}`}>{priority}</span>
+}
+
+export function Avatar({ name, url, size = 24, presence, title }) {
+  const [broken, setBroken] = useState(false)
+  const label = initials(name)
+  return (
+    <span
+      className="avatar-wrap"
+      title={title || name}
+      style={{ width: size, height: size }}
+    >
+      {url && !broken ? (
+        <img
+          className="avatar-img"
+          src={url}
+          alt={name || 'avatar'}
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
+          {label}
+        </span>
+      )}
+      {presence && <span className="presence-dot" style={{ background: presence }} />}
+    </span>
+  )
+}
+
+// A small accessible popover used for menus (account, presence, notifications, filters).
+// The menu flips/clamps so it always stays inside the viewport, even for triggers
+// sitting against the left or right edges of the window.
+export function Dropdown({ label, button, children, align = 'right', width = 260, className = '' }) {
+  const [open, setOpen] = useState(false)
+  const [shift, setShift] = useState(0)
+  const ref = useRef(null)
+  const menuRef = useRef(null)
+  const id = useId()
+
+  useEffect(() => {
+    if (!open) return undefined
+    const onClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    const onKey = (e) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // Keep the open menu within the viewport by nudging it horizontally when either
+  // edge would overflow. Re-measures on open, resize and scroll.
+  useEffect(() => {
+    if (!open) return undefined
+    const measure = () => {
+      const menu = menuRef.current
+      if (!menu) return
+      const margin = 8
+      const rect = menu.getBoundingClientRect()
+      let next = 0
+      if (rect.left < margin) {
+        next = margin - rect.left
+      } else if (rect.right > window.innerWidth - margin) {
+        next = window.innerWidth - margin - rect.right
+      }
+      setShift(next)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [open, align, width])
+
+  return (
+    <div className={`dropdown ${className}`} ref={ref}>
+      <button
+        type="button"
+        className="fs-btn ghost dropdown-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={id}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((o) => {
+          if (!o) setShift(0)
+          return !o
+        })}
+      >
+        {button}
+      </button>
+      {open && (
+        <div
+          id={id}
+          ref={menuRef}
+          role="menu"
+          className="dropdown-menu"
+          style={{ [align]: 0, width, transform: shift ? `translateX(${shift}px)` : undefined }}
+          onClick={(e) => {
+            // Close when a menu item is activated, but not when interacting with form fields.
+            if (e.target.closest('[data-menu-close]')) setOpen(false)
+          }}
+        >
+          {typeof children === 'function' ? children({ close: () => setOpen(false) }) : children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function MenuItem({ icon: Icon, children, onClick, disabled, danger, ...rest }) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className={`menu-item${danger ? ' danger' : ''}`}
+      disabled={disabled}
+      onClick={onClick}
+      data-menu-close
+      {...rest}
+    >
+      {Icon && <Icon size={15} aria-hidden="true" />}
+      <span>{children}</span>
+    </button>
+  )
+}
+
+// Open dialogs, newest last. Only the newest one answers Escape and Tab, so a confirmation
+// inside the task drawer closes alone instead of closing the drawer too.
+const modalStack = []
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
+export function Modal({ title, onClose, children, side = false, wide = false, footer }) {
   const ref = useRef(null)
   const closeRef = useRef(onClose)
   useEffect(() => {
@@ -81,42 +238,108 @@ export function Modal({ title, onClose, children, side = false }) {
     }
   }, [])
 
-  const body = side ? (
-    <div ref={ref} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
-      {children}
-    </div>
-  ) : (
-    <div ref={ref} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
-      <h2>{title}</h2>
-      {children}
+  const body = (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      className={side ? 'drawer' : `modal${wide ? ' wide' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {title && (
+        <div className="modal-head">
+          <h2>{title}</h2>
+          <button type="button" className="fs-btn small ghost" aria-label="Close" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      <div className="modal-body">{children}</div>
+      {footer && <div className="modal-foot">{footer}</div>}
     </div>
   )
 
-  return (
+  return createPortal(
     <div className={`overlay${side ? ' right' : ''}`} onMouseDown={onClose}>
       {body}
+    </div>,
+    document.body,
+  )
+}
+
+export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', danger, busy, onConfirm, onCancel, children }) {
+  return (
+    <Modal
+      title={title}
+      onClose={onCancel}
+      footer={
+        <>
+          <button type="button" className="fs-btn" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`fs-btn ${danger ? 'danger' : 'primary'}`}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? 'Working…' : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      {message && <p>{message}</p>}
+      {children}
+    </Modal>
+  )
+}
+
+export function Pagination({ page, pages, onChange, busy }) {
+  if (!pages || pages <= 1) return null
+  return (
+    <div className="pagination" role="navigation" aria-label="Pagination">
+      <button type="button" className="fs-btn small" disabled={busy || page <= 1} onClick={() => onChange(page - 1)}>
+        Previous
+      </button>
+      <span className="fs-muted">Page {page} of {pages}</span>
+      <button type="button" className="fs-btn small" disabled={busy || page >= pages} onClick={() => onChange(page + 1)}>
+        Next
+      </button>
     </div>
   )
 }
 
-export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', danger, busy, onConfirm, onCancel }) {
+export function Tabs({ tabs, value, onChange, ariaLabel }) {
   return (
-    <Modal title={title} onClose={onCancel}>
-      <p>{message}</p>
-      <div className="modal-actions">
-        <button type="button" className="fs-btn" onClick={onCancel}>
-          Cancel
-        </button>
+    <div className="tabs" role="tablist" aria-label={ariaLabel}>
+      {tabs.map((t) => (
         <button
+          key={t.id}
           type="button"
-          className={`fs-btn ${danger ? 'danger' : 'primary'}`}
-          disabled={busy}
-          onClick={onConfirm}
+          role="tab"
+          aria-selected={value === t.id}
+          className={`tab${value === t.id ? ' active' : ''}`}
+          onClick={() => onChange(t.id)}
         >
-          {confirmLabel}
+          {t.icon && <t.icon size={14} aria-hidden="true" />}
+          {t.label}
+          {t.count != null && <span className="tab-count">{t.count}</span>}
         </button>
-      </div>
-    </Modal>
+      ))}
+    </div>
+  )
+}
+
+export function Field({ label, htmlFor, hint, error, children }) {
+  return (
+    <div className="field">
+      {label && <label className="fs-label" htmlFor={htmlFor}>{label}</label>}
+      {children}
+      {hint && !error && <p className="field-hint">{hint}</p>}
+      {error && <p className="fs-error" role="alert">{error}</p>}
+    </div>
   )
 }
 

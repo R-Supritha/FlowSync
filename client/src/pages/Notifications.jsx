@@ -1,78 +1,109 @@
-import { useState } from 'react'
-import { useDispatch } from 'react-redux'
+import { useEffect } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
+import { Bell, CheckCheck, Trash2 } from 'lucide-react'
+import {
+  deleteNotification,
+  fetchNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  setUnreadOnly,
+} from '../store/notificationsSlice'
+import { openTask, pushToast } from '../store/uiSlice'
 import { useNavigate } from 'react-router-dom'
-import { notificationApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import useAsync from '../hooks/useAsync'
-import { pushToast } from '../store/uiSlice'
-import { timeAgo } from '../utils/format'
-import { notificationTarget } from '../utils/links'
-import { EmptyState, ErrorState, Spinner } from '../components/ui'
+import { formatDateTime } from '../utils/format'
+import { EmptyState, ErrorState, Pagination, Spinner } from '../components/ui'
 
-const LABELS = { task_assigned: 'Assigned', mention: 'Mention', comment_reply: 'Reply', deadline_approaching: 'Deadline', status_changed: 'Status' }
+const TYPE_LABEL = {
+  task_assigned: 'Assigned',
+  mention: 'Mentioned',
+  comment_reply: 'Reply',
+  deadline_approaching: 'Deadline',
+  status_changed: 'Status',
+}
 
 export default function Notifications() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
-  const [unreadOnly, setUnreadOnly] = useState(false)
-  const [page, setPage] = useState(1)
-  const { data, error, loading, reload } = useAsync(
-    () => notificationApi.list({ page, limit: 15, ...(unreadOnly ? { unread: true } : {}) }),
-    [page, unreadOnly],
-  )
+  const { items, unreadCount, page, pages, status, error, unreadOnly } = useSelector((s) => s.notifications)
 
-  async function act(fn, ok) {
+  useEffect(() => {
+    if (status === 'idle') dispatch(fetchNotifications({ unread: unreadOnly, page, limit: 20 }))
+  }, [dispatch, status, unreadOnly, page])
+
+  function open(n) {
+    if (!n.isRead) dispatch(markNotificationRead(n._id))
+    const link = n.link || {}
+    if (link.task) {
+      dispatch(openTask(link.task))
+    } else if (link.project) {
+      navigate(`/projects/${link.project}/board`)
+    } else {
+      navigate('/notifications')
+    }
+  }
+
+  async function clearAll() {
     try {
-      await fn()
-      if (ok) dispatch(pushToast(ok, 'success'))
-      reload()
+      await dispatch(markAllNotificationsRead()).unwrap()
+      dispatch(pushToast('All notifications marked read', 'success'))
     } catch (e) {
       dispatch(pushToast(errorMessage(e), 'error'))
     }
   }
 
-  const items = data?.notifications || []
+  if (status === 'loading' && items.length === 0) return <Spinner label="Loading notifications…" />
+  if (status === 'error' && items.length === 0) {
+    return <ErrorState message={error} onRetry={() => dispatch(fetchNotifications({ unread: unreadOnly, page, limit: 20 }))} />
+  }
+
   return (
     <div className="page">
       <div className="fs-row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
-        <h1>Notifications</h1>
-        <div className="fs-row">
-          <label className="fs-row fs-muted">
-            <input type="checkbox" checked={unreadOnly} onChange={(e) => { setUnreadOnly(e.target.checked); setPage(1) }} />
+        <h1 style={{ marginBottom: 0 }}><Bell size={20} aria-hidden="true" /> Notifications</h1>
+        <div className="fs-row" style={{ gap: 8 }}>
+          <button type="button" className="fs-btn small" disabled={unreadCount === 0} onClick={clearAll}>
+            <CheckCheck size={13} aria-hidden="true" /> Mark all read
+          </button>
+          <label className="fs-row" style={{ gap: 4, fontSize: 13 }}>
+            <input type="checkbox" checked={unreadOnly} onChange={(e) => dispatch(setUnreadOnly(e.target.checked))} />
             Unread only
           </label>
-          <button type="button" className="fs-btn" disabled={!data?.unreadCount} onClick={() => act(() => notificationApi.readAll(), 'All marked as read')}>
-            Mark all read{data?.unreadCount ? ` (${data.unreadCount})` : ''}
-          </button>
         </div>
       </div>
-      {error && <ErrorState message={error} onRetry={reload} />}
-      {loading && !data && <Spinner label="Loading notifications…" />}
-      {data && items.length === 0 && <EmptyState title={unreadOnly ? 'No unread notifications' : 'No notifications yet'}>Assignments, mentions and replies will show up here.</EmptyState>}
-      <ul className="list">
+
+      {items.length === 0 && <EmptyState title={unreadOnly ? 'No unread notifications' : 'Nothing here yet'} />}
+
+      <ul className="notif-page-list">
         {items.map((n) => (
-          <li key={n._id} className={`list-row${n.isRead ? '' : ' unread'}`}>
-            <span className="badge">{LABELS[n.type] || n.type}</span>
-            <button type="button" className="link-btn" style={{ flex: 1, textAlign: 'left' }}
-              onClick={async () => {
-                if (!n.isRead) await notificationApi.read(n._id).catch(() => {})
-                navigate(notificationTarget(n))
-              }}>
-              {n.message}
+          <li key={n._id} className={`notif-page-item${n.isRead ? ' read' : ''}`}>
+            <button type="button" className="notif-main" onClick={() => open(n)}>
+              <span className="notif-type">{TYPE_LABEL[n.type] || 'Update'}</span>
+              <span className="activity-line">
+                <p>{n.message}</p>
+                <span className="fs-muted">{formatDateTime(n.createdAt)}</span>
+              </span>
+              {!n.isRead && <span className="unread-mark" aria-label="Unread" />}
             </button>
-            <span className="fs-muted">{timeAgo(n.createdAt)}</span>
-            {!n.isRead && <button type="button" className="fs-btn small" onClick={() => act(() => notificationApi.read(n._id))}>Mark read</button>}
-            <button type="button" className="fs-btn small danger" aria-label={`Delete notification: ${n.message}`} onClick={() => act(() => notificationApi.remove(n._id), 'Notification deleted')}>Delete</button>
+            <button
+              type="button"
+              className="fs-btn small ghost"
+              aria-label="Delete notification"
+              onClick={async () => {
+                try {
+                  await dispatch(deleteNotification(n._id)).unwrap()
+                } catch (e) {
+                  dispatch(pushToast(errorMessage(e), 'error'))
+                }
+              }}
+            >
+              <Trash2 size={13} aria-hidden="true" />
+            </button>
           </li>
         ))}
       </ul>
-      {data && data.pages > 1 && (
-        <div className="fs-row" style={{ marginTop: 10 }}>
-          <button type="button" className="fs-btn small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
-          <span className="fs-muted">Page {page} of {data.pages}</span>
-          <button type="button" className="fs-btn small" disabled={page >= data.pages} onClick={() => setPage((p) => p + 1)}>Next</button>
-        </div>
-      )}
+
+      <Pagination page={page} pages={pages} onChange={(p) => dispatch(fetchNotifications({ unread: unreadOnly, page: p, limit: 20 }))} />
     </div>
   )
 }

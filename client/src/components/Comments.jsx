@@ -5,7 +5,7 @@ import { errorMessage } from '../api/client'
 import useAsync from '../hooks/useAsync'
 import { pushToast } from '../store/uiSlice'
 import { isManager } from '../utils/roles'
-import { timeAgo } from '../utils/format'
+import { relativeTime } from '../utils/format'
 import { ConfirmDialog, Spinner } from './ui'
 
 const EMOJIS = ['👍', '❤️', '🎉', '👀']
@@ -77,7 +77,7 @@ function Comment({ comment, replies, depth, ctx }) {
       <div className="fs-row" style={{ gap: 8 }}>
         <strong>{name}</strong>
         <span className="fs-muted" style={{ fontSize: '0.8em' }}>
-          {timeAgo(comment.createdAt)}{comment.editedAt ? ' · edited' : ''}
+          {relativeTime(comment.createdAt)}{comment.editedAt ? ' · edited' : ''}
         </span>
       </div>
 

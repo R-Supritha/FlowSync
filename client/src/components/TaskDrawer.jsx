@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { taskApi } from '../api/endpoints'
+import { projectApi, taskApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { pushToast } from '../store/uiSlice'
 import { canModifyTask, canWrite } from '../utils/roles'
 import { taskRef, toDateInput } from '../utils/format'
+import { fetchPeople, selectRoleIn } from '../store/workspacesSlice'
 import { ConfirmDialog, ErrorState, Modal, Spinner } from './ui'
 import Comments from './Comments'
 import Files from './Files'
 
 const PRIORITIES = ['Low', 'Medium', 'High']
+const EMPTY = {}
 
 const toForm = (task) => ({
   title: task.title || '',
@@ -20,21 +22,29 @@ const toForm = (task) => ({
   estimatedHours: task.estimatedHours ?? 0,
   actualHours: task.actualHours ?? 0,
   assignee: task.assignee?._id || '',
-  milestone: task.milestone ? String(task.milestone._id || task.milestone) : '',
   checklist: (task.checklist || []).map((c) => ({ text: c.text, done: !!c.done })),
 })
 
-export default function TaskDrawer({ taskId, project, role, people, onClose, onChanged }) {
+// When project/role/people are not passed (e.g. opened from global search), the
+// drawer resolves them itself from the task's project and workspace.
+export default function TaskDrawer({ taskId, project: propProject, role: propRole, people: propPeople, onClose, onChanged }) {
   const dispatch = useDispatch()
   const me = useSelector((s) => s.auth.user?.id)
   const [task, setTask] = useState(null)
   const [blocks, setBlocks] = useState([])
+  const [project, setProject] = useState(propProject || null)
   const [form, setForm] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [newItem, setNewItem] = useState('')
+
+  const workspaceId = project?.workspace
+  const storeRole = useSelector((s) => (workspaceId ? selectRoleIn(s, workspaceId) : null))
+  const role = propRole !== undefined && propRole !== null ? propRole : storeRole
+  const storePeople = useSelector((s) => (workspaceId ? s.workspaces.people[workspaceId] : null))
+  const people = propPeople || storePeople || EMPTY
 
   useEffect(() => {
     let alive = true
@@ -45,12 +55,22 @@ export default function TaskDrawer({ taskId, project, role, people, onClose, onC
         setTask(res.task)
         setBlocks(res.blocks || [])
         setForm(toForm(res.task))
+        if (!propProject && res.task.project) {
+          projectApi
+            .get(res.task.project)
+            .then((p) => alive && setProject(p.project))
+            .catch(() => alive && setLoadError('Could not load the task project'))
+        }
       })
       .catch((e) => alive && setLoadError(errorMessage(e, 'Failed to load the task')))
     return () => {
       alive = false
     }
-  }, [taskId])
+  }, [taskId, propProject])
+
+  useEffect(() => {
+    if (workspaceId && !storePeople) dispatch(fetchPeople(workspaceId))
+  }, [workspaceId, storePeople, dispatch])
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
   const editable = !!task && canModifyTask(role, task, me)
@@ -82,11 +102,10 @@ export default function TaskDrawer({ taskId, project, role, people, onClose, onC
       deadline: form.deadline || null,
       estimatedHours: Number(form.estimatedHours) || 0,
       actualHours: Number(form.actualHours) || 0,
-      milestone: form.milestone || null,
       checklist: form.checklist.filter((c) => c.text.trim()),
     }
-    // The assignee goes through the dedicated assign call, because only that one notifies the
-    // new assignee and writes the "assigned" line in the activity feed.
+    // The assignee goes through the dedicated assign call: only that one notifies the new
+    // assignee and writes the "assigned" line in the activity feed.
     const assigneeChanged = (form.assignee || '') !== (task.assignee?._id || '')
     const res = await run(async () => {
       let saved = await taskApi.update(taskId, fields)
@@ -145,7 +164,8 @@ export default function TaskDrawer({ taskId, project, role, people, onClose, onC
     <Modal side title="Task details" onClose={onClose}>
       {!task && !loadError && <Spinner label="Loading task…" />}
       {loadError && <ErrorState message={loadError} />}
-      {task && form && (
+      {task && !project && !loadError && <Spinner label="Loading project…" />}
+      {task && form && project && (
         <form onSubmit={save} noValidate>
           <div className="fs-row" style={{ justifyContent: 'space-between' }}>
             <button type="button" className="fs-btn small" onClick={copyRef} title="Copy the GitHub reference">
@@ -194,16 +214,6 @@ export default function TaskDrawer({ taskId, project, role, people, onClose, onC
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
-
-          {(project.milestones || []).length > 0 && (
-            <>
-              <label className="fs-label" htmlFor="td-milestone">Milestone</label>
-              <select id="td-milestone" className="fs-select" disabled={!editable} value={form.milestone} onChange={set('milestone')}>
-                <option value="">None</option>
-                {project.milestones.map((m) => <option key={m._id} value={m._id}>{m.title}</option>)}
-              </select>
-            </>
-          )}
 
           <label className="fs-label" htmlFor="td-labels">Labels (comma separated)</label>
           <input id="td-labels" className="fs-input" disabled={!editable} value={form.labels} onChange={set('labels')} list="td-label-options" />
@@ -274,8 +284,8 @@ export default function TaskDrawer({ taskId, project, role, people, onClose, onC
 
       {task && form && (
         <>
-          <Comments taskId={taskId} people={people} role={role} me={me} canWrite={canMove} />
-          <Files scope="task" id={taskId} role={role} me={me} canUpload={canMove} />
+          <Comments taskId={taskId} people={people} role={role} me={me} canWrite={canWrite(role)} />
+          <Files scope="task" id={taskId} role={role} me={me} canUpload={canWrite(role)} />
         </>
       )}
 

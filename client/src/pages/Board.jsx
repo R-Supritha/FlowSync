@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { fetchProject } from '../store/projectsSlice'
 import { createTask, fetchBoard, moveTask, resetBoard, saveColumns } from '../store/boardSlice'
 import { selectRoleIn, setCurrentWorkspace } from '../store/workspacesSlice'
@@ -209,9 +209,7 @@ export default function Board() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [view, setView] = useState('board')
   const [page, setPage] = useState(1)
-  const [searchParams, setSearchParams] = useSearchParams()
-  const openTaskId = searchParams.get('task')
-  const setOpenTaskId = (id) => setSearchParams(id ? { task: id } : {}, { replace: true })
+  const [openTaskId, setOpenTaskId] = useState(null)
   const [dialog, setDialog] = useState(null) // { type: 'task' | 'columns', status? }
   const [drag, setDrag] = useState(null)
   const [overColumn, setOverColumn] = useState(null)
@@ -277,7 +275,7 @@ export default function Board() {
   const pageTasks = allTasks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="board-toolbar">
         <strong>{project.name}</strong>
         {project.isArchived && <span className="badge">Archived</span>}

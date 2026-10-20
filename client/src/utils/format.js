@@ -8,6 +8,35 @@ export function formatDate(value) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
+export function formatDateTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+// "3 minutes ago" style. Falls back to a date for anything older than a week.
+export function relativeTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = Date.now() - d.getTime()
+  const sec = Math.round(diff / 1000)
+  if (sec < 45) return 'just now'
+  const min = Math.round(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const hr = Math.round(min / 60)
+  if (hr < 24) return `${hr}h ago`
+  const day = Math.round(hr / 24)
+  if (day < 7) return `${day}d ago`
+  return formatDate(value)
+}
+
 // <input type="date"> wants YYYY-MM-DD
 export function toDateInput(value) {
   if (!value) return ''
@@ -31,29 +60,38 @@ export function initials(name = '') {
   )
 }
 
-export function timeAgo(value) {
-  const t = new Date(value).getTime()
-  if (Number.isNaN(t)) return ''
-  const s = Math.max(0, Math.round((Date.now() - t) / 1000))
-  if (s < 60) return 'just now'
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m} min ago`
-  const h = Math.round(m / 60)
-  if (h < 24) return `${h} h ago`
-  const d = Math.round(h / 24)
-  if (d < 7) return `${d} d ago`
-  return formatDate(value)
+export function formatBytes(bytes) {
+  const n = Number(bytes)
+  if (!Number.isFinite(n) || n <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1)
+  return `${(n / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
-export function formatBytes(n) {
-  if (!Number.isFinite(n)) return ''
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`
-}
-
-export function formatDateTime(value) {
+export function startOfDay(value = new Date()) {
   const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+export function addDays(value, days) {
+  const d = new Date(value)
+  d.setDate(d.getDate() + days)
+  return d
+}
+
+// Monday-first week start (matches the server's weekRange).
+export function weekStart(value = new Date()) {
+  const d = startOfDay(value)
+  const day = d.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  d.setDate(d.getDate() + diff)
+  return d
+}
+
+export function dayKey(value) {
+  const d = new Date(value)
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
 }

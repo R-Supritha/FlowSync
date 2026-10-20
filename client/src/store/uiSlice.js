@@ -7,12 +7,30 @@ export const THEMES = [
   { id: 'contrast', label: 'High contrast' },
 ]
 
+export const PANEL_TABS = [
+  { id: 'activity', label: 'Activity' },
+  { id: 'github', label: 'GitHub' },
+  { id: 'analytics', label: 'Analytics' },
+  { id: 'contributions', label: 'Contributions' },
+]
+
 const THEME_KEY = 'flowsync_theme'
 const FONT_KEY = 'flowsync_font'
+const NEXT_KEY = 'flowsync_notifications'
+const LANG_KEY = 'flowsync_lang'
 
 function read(key, fallback) {
   try {
     return localStorage.getItem(key) || fallback
+  } catch {
+    return fallback
+  }
+}
+
+function readBool(key, fallback) {
+  try {
+    const v = localStorage.getItem(key)
+    return v === null ? fallback : v === 'true'
   } catch {
     return fallback
   }
@@ -25,9 +43,17 @@ const uiSlice = createSlice({
   initialState: {
     theme: read(THEME_KEY, 'system'), // 'system' follows the OS light/dark setting
     fontSize: Number(read(FONT_KEY, '14')),
+    language: read(LANG_KEY, 'en'),
     sidebarOpen: true,
     panelOpen: false,
+    panelTab: 'activity',
+    searchOpen: false,
+    notificationPrefs: readBool(NEXT_KEY, true),
     toasts: [],
+    // Open editor-style tabs: { path, label, kind }
+    tabs: [],
+    // The task shown in the right-side drawer (null when closed).
+    openTaskId: null,
   },
   reducers: {
     setTheme(state, action) {
@@ -38,11 +64,51 @@ const uiSlice = createSlice({
       state.fontSize = action.payload
       localStorage.setItem(FONT_KEY, String(action.payload))
     },
+    setLanguage(state, action) {
+      state.language = action.payload
+      localStorage.setItem(LANG_KEY, action.payload)
+    },
+    setNotificationPrefs(state, action) {
+      state.notificationPrefs = action.payload
+      localStorage.setItem(NEXT_KEY, String(action.payload))
+    },
     toggleSidebar(state) {
       state.sidebarOpen = !state.sidebarOpen
     },
-    togglePanel(state) {
-      state.panelOpen = !state.panelOpen
+    setSidebar(state, action) {
+      state.sidebarOpen = action.payload
+    },
+    togglePanel(state, action) {
+      state.panelOpen = action.payload === undefined ? !state.panelOpen : action.payload
+    },
+    setPanelTab(state, action) {
+      state.panelTab = action.payload
+      state.panelOpen = true
+    },
+    setSearchOpen(state, action) {
+      state.searchOpen = action.payload
+    },
+    openTab(state, action) {
+      const { path, label, kind = 'page' } = action.payload
+      const existing = state.tabs.find((t) => t.path === path)
+      if (existing) {
+        existing.label = label
+        existing.kind = kind
+      } else {
+        state.tabs.push({ path, label, kind })
+      }
+    },
+    closeTab(state, action) {
+      state.tabs = state.tabs.filter((t) => t.path !== action.payload)
+    },
+    resetTabs(state) {
+      state.tabs = []
+    },
+    openTask(state, action) {
+      state.openTaskId = action.payload
+    },
+    closeTask(state) {
+      state.openTaskId = null
     },
     pushToast: {
       reducer(state, action) {
@@ -58,6 +124,22 @@ const uiSlice = createSlice({
   },
 })
 
-export const { setTheme, setFontSize, toggleSidebar, togglePanel, pushToast, dismissToast } =
-  uiSlice.actions
+export const {
+  setTheme,
+  setFontSize,
+  setLanguage,
+  setNotificationPrefs,
+  toggleSidebar,
+  setSidebar,
+  togglePanel,
+  setPanelTab,
+  setSearchOpen,
+  openTab,
+  closeTab,
+  resetTabs,
+  openTask,
+  closeTask,
+  pushToast,
+  dismissToast,
+} = uiSlice.actions
 export default uiSlice.reducer

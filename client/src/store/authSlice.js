@@ -59,11 +59,6 @@ const authSlice = createSlice({
     clearAuthError(state) {
       state.error = null
     },
-    // After the person edits their profile, keep the name and email in the title bar current.
-    setUser(state, action) {
-      state.user = { ...state.user, ...action.payload }
-      localStorage.setItem(USER_KEY, JSON.stringify(state.user))
-    },
   },
   extraReducers: (builder) => {
     for (const thunk of [login, register]) {
@@ -85,5 +80,5 @@ const authSlice = createSlice({
   },
 })
 
-export const { logout, clearAuthError, setUser } = authSlice.actions
+export const { logout, clearAuthError } = authSlice.actions
 export default authSlice.reducer

@@ -6,7 +6,7 @@ import useAsync from '../hooks/useAsync'
 import useDownload from '../hooks/useDownload'
 import { pushToast } from '../store/uiSlice'
 import { isManager } from '../utils/roles'
-import { formatBytes, timeAgo } from '../utils/format'
+import { formatBytes, relativeTime } from '../utils/format'
 import { ConfirmDialog, Spinner } from './ui'
 
 const MAX_BYTES = 20 * 1024 * 1024
@@ -17,7 +17,7 @@ export default function Files({ scope, id, role, me, canUpload }) {
   const download = useDownload()
   const input = useRef(null)
   const { data, error, loading, reload } = useAsync(
-    () => (scope === 'task' ? fileApi.forTask(id) : fileApi.forProject(id)),
+    () => (scope === 'task' ? fileApi.listTask(id) : fileApi.listProject(id)),
     [scope, id],
   )
   const [progress, setProgress] = useState(null)
@@ -34,7 +34,7 @@ export default function Files({ scope, id, role, me, canUpload }) {
     }
     setProgress(0)
     try {
-      await (scope === 'task' ? fileApi.uploadToTask : fileApi.uploadToProject)(id, file, setProgress)
+      await fileApi.upload(scope, id, file, setProgress)
       dispatch(pushToast('File uploaded', 'success'))
       reload()
     } catch (err) {
@@ -73,7 +73,7 @@ export default function Files({ scope, id, role, me, canUpload }) {
               {f.originalName}
             </span>
             <span className="fs-muted" style={{ fontSize: '0.8em' }}>
-              {formatBytes(f.size)} · {f.uploadedBy?.name || 'someone'} · {timeAgo(f.createdAt)}
+              {formatBytes(f.size)} · {f.uploadedBy?.name || 'someone'} · {relativeTime(f.createdAt)}
             </span>
             <button type="button" className="fs-btn small" aria-label={`Download ${f.originalName}`} onClick={() => download(f)}>Download</button>
             {(mine || isManager(role)) && (

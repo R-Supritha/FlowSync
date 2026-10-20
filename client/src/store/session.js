@@ -2,6 +2,8 @@ import { logout } from './authSlice'
 import { resetWorkspaces } from './workspacesSlice'
 import { clearProjects } from './projectsSlice'
 import { resetBoard } from './boardSlice'
+import { resetNotifications } from './notificationsSlice'
+import { resetTabs } from './uiSlice'
 
 // Signs out and clears everything that belongs to the previous person.
 export const signOut = () => (dispatch) => {
@@ -9,4 +11,6 @@ export const signOut = () => (dispatch) => {
   dispatch(resetWorkspaces())
   dispatch(clearProjects())
   dispatch(resetBoard())
+  dispatch(resetNotifications())
+  dispatch(resetTabs())
 }
