@@ -204,3 +204,11 @@ export const settingsApi = {
   get: () => api.get('/settings').then(data),
   update: (body) => api.put('/settings', body).then(data),
 }
+
+// FR23 stand-up report, FR24 sprint planning, FR25 task breakdown.
+export const aiAssistApi = {
+  breakdown: (taskId, body) => api.post(`/tasks/${taskId}/ai/breakdown`, body).then(data),
+  standup: (projectId, body) => api.post(`/projects/${projectId}/ai/standup`, body).then(data),
+  sprintPlan: (projectId, body) => api.post(`/projects/${projectId}/ai/sprint-plan`, body).then(data),
+  applySprint: (projectId, body) => api.post(`/projects/${projectId}/sprint/apply`, body).then(data),
+}

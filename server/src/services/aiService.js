@@ -231,8 +231,8 @@ function parseModelJson(content) {
 }
 
 // Builds the HTTP request + response-extractor for the configured provider.
-function buildAiRequest(config, text) {
-  const userText = `Project requirements:\n\n${text}`;
+function buildAiRequest(config, { system, user }) {
+  const userText = user;
   if (config.provider === 'gemini') {
     return {
       url: `${config.baseUrl}/models/${encodeURIComponent(config.model)}:generateContent`,
@@ -241,7 +241,7 @@ function buildAiRequest(config, text) {
         'x-goog-api-key': config.key,
       },
       body: {
-        systemInstruction: { parts: [{ text: systemPrompt() }] },
+        systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: userText }] }],
         generationConfig: {
           temperature: 0.3,
@@ -269,7 +269,7 @@ function buildAiRequest(config, text) {
       temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: systemPrompt() },
+        { role: 'system', content: system },
         { role: 'user', content: userText },
       ],
     },
@@ -282,9 +282,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // One HTTP call to one model. Returns { ok, status, data } for any answer from the AI service, and
 // throws AiUnavailableError only when there was no answer (timeout, no network).
-async function callModel(config, text) {
-  const request = buildAiRequest(config, text);
-  const timeoutMs = Number(process.env.AI_TIMEOUT_MS) || 120 * 1000;
+async function callModel(config, prompt, timeoutOverride) {
+  const request = buildAiRequest(config, prompt);
+  const timeoutMs = timeoutOverride || Number(process.env.AI_TIMEOUT_MS) || 120 * 1000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -322,39 +322,34 @@ function modelsToTry(config) {
   return [config.model, ...extra.filter((m) => m !== config.model)];
 }
 
-// Asks the model for a structured plan from free-form requirements text.
+// Sends one prompt to the AI and returns the parsed JSON object. Used by every AI feature
+// (project plans, task breakdown, stand-up reports, sprint summaries).
 // The free AI tiers are often overloaded (HTTP 503) or retire a model (HTTP 404), so:
 //   - a 503 is retried on the same model after a short wait,
 //   - a 503 that persists, a 404, a 429 or a timeout moves on to the next model in AI_FALLBACK_MODELS,
 //   - a rejected key stops immediately (another model cannot fix that),
 //   - if every model fails, the last failure is reported together with what the service said.
-async function generateProjectPlan(requirements) {
+// options: { timeoutMs } shortens the wait for optional extras; { useFallbacks: false } tries one model only.
+async function generateJson({ system, user }, options = {}) {
   const config = aiConfig();
   if (!config.key) {
     throw new AiUnavailableError(
-      'AI project generation is not configured on this server. Set AI_API_KEY (and optionally AI_PROVIDER / AI_BASE_URL / AI_MODEL), or create the project manually.'
+      'AI is not configured on this server. Set AI_API_KEY (and optionally AI_PROVIDER / AI_BASE_URL / AI_MODEL).'
     );
-  }
-
-  const text = String(requirements || '').trim();
-  if (text.length < 30) {
-    throw new AiInvalidResponseError('Describe the project in at least 30 characters so the AI has enough context.');
-  }
-  if (text.length > MAX_REQUIREMENTS_CHARS) {
-    throw new AiInvalidResponseError(`Requirements are too long (max ${MAX_REQUIREMENTS_CHARS} characters).`);
   }
 
   const retryDelay = Number(process.env.AI_RETRY_DELAY_MS) || 1500;
   const overloadRetries = 2;
+  const models = options.useFallbacks === false ? [config.model] : modelsToTry(config);
   let lastFailure = null;
 
-  for (const model of modelsToTry(config)) {
+  for (const model of models) {
     const modelConfig = { ...config, model };
 
     for (let attempt = 0; attempt <= overloadRetries; attempt += 1) {
       let result;
       try {
-        result = await callModel(modelConfig, text);
+        result = await callModel(modelConfig, { system, user }, options.timeoutMs);
       } catch (error) {
         if (!error.timedOut) throw error; // no network: other models will not help
         lastFailure = error;
@@ -362,8 +357,7 @@ async function generateProjectPlan(requirements) {
       }
 
       if (result.ok) {
-        const raw = parseModelJson(result.request.extract(result.data));
-        return sanitizePlan(raw);
+        return parseModelJson(result.request.extract(result.data));
       }
 
       const detail = result.data && result.data.error && result.data.error.message ? String(result.data.error.message) : '';
@@ -393,11 +387,32 @@ async function generateProjectPlan(requirements) {
   throw lastFailure || new AiUnavailableError('The AI service could not be used. Please try again later.');
 }
 
+// Asks the model for a structured plan from free-form requirements text.
+async function generateProjectPlan(requirements) {
+  if (!isAiConfigured()) {
+    throw new AiUnavailableError(
+      'AI project generation is not configured on this server. Set AI_API_KEY (and optionally AI_PROVIDER / AI_BASE_URL / AI_MODEL), or create the project manually.'
+    );
+  }
+
+  const text = String(requirements || '').trim();
+  if (text.length < 30) {
+    throw new AiInvalidResponseError('Describe the project in at least 30 characters so the AI has enough context.');
+  }
+  if (text.length > MAX_REQUIREMENTS_CHARS) {
+    throw new AiInvalidResponseError(`Requirements are too long (max ${MAX_REQUIREMENTS_CHARS} characters).`);
+  }
+
+  const raw = await generateJson({ system: systemPrompt(), user: `Project requirements:\n\n${text}` });
+  return sanitizePlan(raw);
+}
+
 module.exports = {
   AiUnavailableError,
   AiInvalidResponseError,
   isAiConfigured,
   generateProjectPlan,
+  generateJson,
   sanitizePlan,
   parseModelJson,
   PRIORITIES,

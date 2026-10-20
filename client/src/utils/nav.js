@@ -4,6 +4,8 @@ export const VIEWS = {
   calendar: 'Calendar',
   activity: 'Activity',
   analytics: 'Analytics',
+  standup: 'Stand-up',
+  sprint: 'Sprint',
   github: 'GitHub',
   milestones: 'Milestones',
   files: 'Files',
@@ -52,5 +54,7 @@ export const PROJECT_VIEWS = [
   { id: 'files', label: 'Files' },
   { id: 'activity', label: 'Activity' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'standup', label: 'Stand-up' },
+  { id: 'sprint', label: 'Sprint' },
   { id: 'github', label: 'GitHub' },
 ]

@@ -27,6 +27,7 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const githubRoutes = require('./routes/githubRoutes');
 const ocrRoutes = require('./routes/ocrRoutes');
 const aiProjectRoutes = require('./routes/aiProjectRoutes');
+const aiAssistRoutes = require('./routes/aiAssistRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
@@ -73,6 +74,7 @@ app.use('/api', profileRoutes);
 app.use('/api', githubRoutes);
 app.use('/api', ocrRoutes);
 app.use('/api', aiProjectRoutes);
+app.use('/api', aiAssistRoutes);
 app.use('/api', settingsRoutes);
 
 app.get('/api/test-protected', protect, (req, res) => {

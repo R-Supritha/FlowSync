@@ -8,6 +8,7 @@ import { taskRef, toDateInput } from '../utils/format'
 import { fetchPeople, selectRoleIn } from '../store/workspacesSlice'
 import { ConfirmDialog, ErrorState, Modal, Spinner } from './ui'
 import Comments from './Comments'
+import Subtasks from './Subtasks'
 import Files from './Files'
 
 const PRIORITIES = ['Low', 'Medium', 'High']
@@ -284,6 +285,7 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
 
       {task && form && (
         <>
+          <Subtasks task={task} editable={editable && !task.isArchived} onTaskChange={(t) => { setTask(t); if (onChanged) onChanged() }} />
           <Comments taskId={taskId} people={people} role={role} me={me} canWrite={canWrite(role)} />
           <Files scope="task" id={taskId} role={role} me={me} canUpload={canWrite(role)} />
         </>

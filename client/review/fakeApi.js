@@ -3,7 +3,7 @@ import { ids, token } from './token'
 export { ids, token }
 
 // A pretend FlowSync API that answers with the exact response shapes the real server returned in our tests.
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok' } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -280,6 +280,44 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       const proj = { _id: ids.project, ...project(), name: body.plan.name }
       state.generated[body.generationKey] = proj
       return ok({ success: true, project: proj, tasks: body.plan.tasks }, 201)
+    }
+
+    // ---- FR25 task breakdown, FR23 stand-up report, FR24 sprint planning ----
+    mm = m(/^\/tasks\/(\w+)\/ai\/breakdown$/)
+    if (mm && method === 'post') {
+      if (role === 'Viewer') return fail(err(403, 'You do not have permission to change this task'))
+      if (breakdown === 'off') { const e = err(503, 'AI is not configured on this server. Set AI_API_KEY.'); e.response.data.aiUnavailable = true; return fail(e) }
+      if (breakdown === 'junk') return fail(err(422, 'The AI did not return any usable new subtasks. Try again or add more detail to the task.'))
+      return ok({ success: true, subtasks: [{ title: 'Design the login form' }, { title: 'Add JWT middleware' }, { title: 'Write password hashing' }], existingCount: 0 })
+    }
+    mm = m(/^\/projects\/(\w+)\/ai\/standup$/)
+    if (mm && method === 'post') {
+      const base = { windowHours: body.windowHours, since: iso(-1), until: iso(), team: { events: 5, tasksCompleted: 2, openTasks: 3, overdue: 1, blocked: 1, unassignedBlockers: ['"Orphan" is overdue'] } }
+      if (standup === 'empty') return ok({ success: true, report: { ...base, source: 'rules', summary: 'No activity was recorded in the last 24 hours.', team: { events: 0, tasksCompleted: 0, openTasks: 0, overdue: 0, blocked: 0, unassignedBlockers: [] }, people: [] } })
+      const people = [
+        { userId: ids.me, name: 'Sunitha', text: standup === 'rules' || !body.useAi ? 'In the last 24 hours: 3 commits, completed 1 task.' : 'Shipped the login page and fixed two bugs.', counts: { commits: 3, tasksCompleted: 1, comments: 0 }, inProgress: ['Build login page'], blockers: ['"Search" is waiting on "Build login page"'] },
+        { userId: ids.other, name: 'Test User Two', text: 'No recorded activity in the last 24 hours.', counts: { commits: 0 }, inProgress: [], blockers: [] },
+      ]
+      if (standup === 'rules' || !body.useAi) return ok({ success: true, report: { ...base, source: 'rules', ...(standup === 'rules' && body.useAi ? { aiError: 'The AI service returned an error (HTTP 503) for model main: high demand.' } : {}), summary: 'In the last 24 hours there were 5 activity events from 2 people.', people } })
+      return ok({ success: true, report: { ...base, source: 'ai', summary: 'A productive day with the login work finished.', people } })
+    }
+    mm = m(/^\/projects\/(\w+)\/ai\/sprint-plan$/)
+    if (mm && method === 'post') {
+      if (role === 'Viewer') return fail(err(403, 'Viewers have read-only access'))
+      const capacityHours = (body.people || 3) * body.hoursPerPerson
+      const aiPart = !body.useAi ? { used: false, requested: false } : sprint === 'ai-down' ? { used: false, error: 'The AI service timed out. Please try again.' } : { used: true, goal: 'Ship a working login.', summary: 'Focus on the auth tasks first.', risks: ['Task 2 has no estimate'] }
+      if (sprint === 'empty') return ok({ success: true, settings: { sprintDays: body.sprintDays, people: 3, hoursPerPerson: body.hoursPerPerson, capacityHours }, sprint: { days: body.sprintDays, capacityHours, plannedHours: 0, remainingHours: capacityHours, utilisation: 0, tasks: [] }, deferred: [], backlogCount: 0, warnings: ['The Backlog column is empty, so there is nothing to plan.'], ai: { used: false, requested: !!body.useAi } })
+      return ok({ success: true, settings: { sprintDays: body.sprintDays, people: body.people || 3, hoursPerPerson: body.hoursPerPerson, capacityHours },
+        sprint: { days: body.sprintDays, capacityHours, plannedHours: 6, remainingHours: capacityHours - 6, utilisation: 6 / capacityHours, tasks: [
+          { _id: ids.t1, title: 'Build login page', priority: 'High', estimatedHours: 4, assumedEstimate: false, deadline: iso(3), dependsOn: [] },
+          { _id: ids.t2, title: 'Add protected routes', priority: 'Medium', estimatedHours: 2, assumedEstimate: true, deadline: null, dependsOn: ['Build login page'] } ] },
+        deferred: [{ _id: ids.t3, title: 'Write tests', priority: 'Low', estimatedHours: 40, assumedEstimate: false, reason: 'Needs 40 h, more than the whole sprint (30 h). Split it into smaller tasks' }],
+        backlogCount: 3, warnings: ['1 task has no estimate, so 4 h was assumed for each.'], ai: aiPart })
+    }
+    mm = m(/^\/projects\/(\w+)\/sprint\/apply$/)
+    if (mm && method === 'post') {
+      if (role !== 'Admin' && role !== 'Manager') return fail(err(403, 'Only Admin or Manager can start a sprint'))
+      return ok({ success: true, target: 'To Do', moved: body.taskIds.map((id) => ({ _id: id, title: 'Moved task' })), skipped: [] })
     }
 
     return fail(err(404, `unmocked ${method} ${url}`))

@@ -1778,3 +1778,18 @@ code {
     display: none;
   }
 }
+
+/* Stand-up report, sprint planning and subtasks (FR23, FR24, FR25).
+   The stat cards reuse the dashboard's .stat-grid / .stat / .stat-value. */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--border);
+}
