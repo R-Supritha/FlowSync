@@ -1,122 +1,55 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { Route, Routes } from 'react-router-dom'
+import ProtectedRoute from './components/ProtectedRoute'
+import AppShell from './components/AppShell'
+import ProjectLayout from './components/ProjectLayout'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import Dashboard from './pages/Dashboard'
+import Home from './pages/Home'
+import Members from './pages/Members'
+import Teams from './pages/Teams'
+import Board from './pages/Board'
+import GitHubPanel from './pages/GitHubPanel'
+import Milestones from './pages/Milestones'
+import ProjectTeams from './pages/ProjectTeams'
+import { ProjectActivity, ProjectAnalytics, ProjectCalendar, ProjectFiles } from './pages/ProjectViews'
+import { WorkspaceActivity, WorkspaceAnalytics, WorkspaceCalendar } from './pages/WorkspacePages'
+import Notifications from './pages/Notifications'
+import Profile from './pages/Profile'
+import Settings from './pages/Settings'
+import NotFound from './pages/NotFound'
 
-function App() {
-  const [count, setCount] = useState(0)
-
+export default function App() {
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppShell />}>
+          <Route index element={<Dashboard />} />
+          <Route path="projects" element={<Home />} />
+          <Route path="teams" element={<Teams />} />
+          <Route path="members" element={<Members />} />
+          <Route path="calendar" element={<WorkspaceCalendar />} />
+          <Route path="activity" element={<WorkspaceActivity />} />
+          <Route path="analytics" element={<WorkspaceAnalytics />} />
+          <Route path="notifications" element={<Notifications />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="users/:id" element={<Profile />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="projects/:projectId" element={<ProjectLayout />}>
+            <Route path="board" element={<Board />} />
+            <Route path="calendar" element={<ProjectCalendar />} />
+            <Route path="activity" element={<ProjectActivity />} />
+            <Route path="analytics" element={<ProjectAnalytics />} />
+            <Route path="github" element={<GitHubPanel />} />
+            <Route path="files" element={<ProjectFiles />} />
+            <Route path="milestones" element={<Milestones />} />
+            <Route path="teams" element={<ProjectTeams />} />
+          </Route>
+        </Route>
+      </Route>
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   )
 }
-
-export default App
