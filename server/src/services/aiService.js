@@ -60,7 +60,15 @@ function isAiConfigured() {
   return Boolean(process.env.AI_API_KEY);
 }
 
-const SYSTEM_PROMPT = `You are a senior project planner inside a project-management tool.
+// How many tasks to ask the AI for. Asking for fewer makes the answer much faster on the free tiers
+// (the newer models also "think" first). The plan can still be edited, and sanitizePlan allows up to MAX_TASKS.
+function requestedTaskCount() {
+  const n = Math.round(Number(process.env.AI_PLAN_MAX_TASKS));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 5), MAX_TASKS) : 12;
+}
+
+function systemPrompt() {
+  return `You are a senior project planner inside a project-management tool.
 Given raw project requirements, produce a structured project plan as JSON with this exact shape:
 {
   "name": "project name (max 100 chars)",
@@ -90,10 +98,11 @@ Given raw project requirements, produce a structured project plan as JSON with t
 Rules:
 - Output JSON only, no prose, no markdown fences.
 - 3-8 milestones with increasing offsetDays (0-365).
-- 5-${MAX_TASKS} tasks, ordered so dependencies only point to earlier tasks (lower indexes).
+- 5-${requestedTaskCount()} tasks, ordered so dependencies only point to earlier tasks (lower indexes).
 - Every task needs at least one acceptance criterion and a realistic estimatedHours (0.5-200).
 - milestoneIndex must reference a milestone in the plan or be null.
 - Keep titles concise; put detail in descriptions.`;
+}
 
 function asString(value, max) {
   if (value === undefined || value === null) return '';
@@ -232,7 +241,7 @@ function buildAiRequest(config, text) {
         'x-goog-api-key': config.key,
       },
       body: {
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        systemInstruction: { parts: [{ text: systemPrompt() }] },
         contents: [{ role: 'user', parts: [{ text: userText }] }],
         generationConfig: {
           temperature: 0.3,
@@ -260,7 +269,7 @@ function buildAiRequest(config, text) {
       temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt() },
         { role: 'user', content: userText },
       ],
     },

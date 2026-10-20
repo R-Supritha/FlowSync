@@ -61,6 +61,9 @@ async function ocrImageBuffer(buffer) {
         // works offline and never depends on downloading from a CDN at request time.
         langPath: path.join(__dirname, '..', '..', 'tessdata'),
         gzip: false,
+        // Do not write a copy of the language file into the server folder. That write changed a file
+        // under the project, and `npm run dev` (node --watch) restarted the API in the middle of the request.
+        cacheMethod: 'none',
       }),
       OCR_TIMEOUT_MS,
       'OCR took too long and was cancelled'
