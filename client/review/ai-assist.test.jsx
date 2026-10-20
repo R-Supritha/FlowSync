@@ -112,6 +112,8 @@ describe('FR23: the stand-up report page', () => {
     const sun = within(report).getByRole('article', { name: 'Sunitha' })
     expect(within(sun).getByText('Shipped the login page and fixed two bugs.')).toBeInTheDocument()
     expect(within(sun).getByText('3 commits')).toBeInTheDocument()
+    expect(within(sun).getByText('1 task done')).toBeInTheDocument()   // singular reads correctly
+    expect(within(sun).queryByText('0 comments')).not.toBeInTheDocument()
     expect(within(sun).getByText('Working on:').closest('p')).toHaveTextContent('Build login page')
     expect(within(sun).getByText('Blockers:').closest('p')).toHaveTextContent('"Search" is waiting on "Build login page"')
     expect(within(report).getByText(/Unassigned problems:/)).toBeInTheDocument()

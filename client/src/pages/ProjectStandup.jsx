@@ -14,9 +14,11 @@ const WINDOWS = [
   [168, 'Last 7 days'],
 ]
 
+// [key, singular, plural] so "1 task done" and "3 tasks done" both read correctly.
 const COUNT_LABELS = [
-  ['commits', 'commits'], ['prsOpened', 'PRs opened'], ['prsMerged', 'PRs merged'], ['tasksCompleted', 'tasks done'],
-  ['tasksCreated', 'tasks created'], ['tasksMoved', 'cards moved'], ['comments', 'comments'], ['files', 'files'],
+  ['commits', 'commit', 'commits'], ['prsOpened', 'PR opened', 'PRs opened'], ['prsMerged', 'PR merged', 'PRs merged'],
+  ['tasksCompleted', 'task done', 'tasks done'], ['tasksCreated', 'task created', 'tasks created'],
+  ['tasksMoved', 'card moved', 'cards moved'], ['comments', 'comment', 'comments'], ['files', 'file', 'files'],
 ]
 
 function toPlainText(project, windowLabel, report) {
@@ -114,7 +116,7 @@ export default function ProjectStandup() {
                 <h3>{p.name}</h3>
                 <p style={{ margin: '0 0 8px' }}>{p.text}</p>
                 <div className="fs-row" style={{ flexWrap: 'wrap', gap: 4 }}>
-                  {COUNT_LABELS.filter(([k]) => p.counts[k] > 0).map(([k, label]) => <span key={k} className="badge">{p.counts[k]} {label}</span>)}
+                  {COUNT_LABELS.filter(([k]) => p.counts[k] > 0).map(([k, one, many]) => <span key={k} className="badge">{p.counts[k]} {p.counts[k] === 1 ? one : many}</span>)}
                 </div>
                 {p.inProgress.length > 0 && <p className="fs-muted" style={{ marginBottom: 0 }}><strong>Working on:</strong> {p.inProgress.join('; ')}</p>}
                 {p.blockers.length > 0 && <p className="fs-error" style={{ marginBottom: 0 }}><strong>Blockers:</strong> {p.blockers.join('; ')}</p>}

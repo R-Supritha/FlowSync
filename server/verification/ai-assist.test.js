@@ -279,21 +279,23 @@ test('FR23 facts: counts per person, only inside the window, newest highlight fi
   assert.equal(s.highlights[0], 'committed "A" (abc1234)'); assert.equal(f.team.events, 4); assert.equal(f.team.tasksCompleted, 1);
   assert.equal(standupSvc.buildStandupFacts({ activities, tasks: [], now: now(), windowHours: 48 }).team.events, 5);
 });
-test('FR23 facts: in-progress work, overdue tasks and blocked tasks, per assignee and for unassigned work', () => {
+test('FR23 facts: blockers are work that has started and cannot continue, or overdue work (queued tasks are not blockers)', () => {
   const sun = { _id: 'sunitha', name: 'Sunitha' };
   const tasks = [
     { _id: T(1), title: 'Login', status: 'In Progress', assignee: sun, dependencies: [] },
-    { _id: T(2), title: 'Search', status: 'Backlog', assignee: sun, dependencies: [T(1)] },
+    { _id: T(2), title: 'Search', status: 'Backlog', assignee: sun, dependencies: [T(1)] },          // queued behind Login: normal
     { _id: T(3), title: 'Old thing', status: 'Review', assignee: sun, deadline: hoursAgo(48), dependencies: [] },
     { _id: T(4), title: 'Orphan', status: 'To Do', assignee: null, deadline: hoursAgo(10), dependencies: [] },
     { _id: T(5), title: 'Finished', status: 'Done', assignee: sun, deadline: hoursAgo(99), dependencies: [] },
+    { _id: T(6), title: 'Deploy', status: 'In Progress', assignee: sun, dependencies: [T(2)] },       // started, but its prerequisite is not done
+    { _id: T(7), title: 'Queued unassigned', status: 'To Do', assignee: null, dependencies: [T(1)] }, // queued: not a problem
   ];
   const f = standupSvc.buildStandupFacts({ activities: [], tasks, now: now(), windowHours: 24 });
   const s = f.people[0];
-  assert.deepEqual(s.inProgress, ['Login', 'Old thing']);
-  assert.deepEqual(s.blockers, ['"Search" is waiting on "Login"', '"Old thing" is overdue']);
+  assert.deepEqual(s.inProgress, ['Login', 'Old thing', 'Deploy']);
+  assert.deepEqual(s.blockers, ['"Old thing" is overdue', '"Deploy" has started but is waiting on "Search"']);
   assert.deepEqual(f.team.unassignedBlockers, ['"Orphan" is overdue']);
-  assert.equal(f.team.openTasks, 4); assert.equal(f.team.overdue, 2); assert.equal(f.team.blocked, 1);
+  assert.equal(f.team.openTasks, 6); assert.equal(f.team.overdue, 2); assert.equal(f.team.blocked, 1);
 });
 test('FR23 plain report: readable sentences from the facts, and an honest empty report', () => {
   const activities = [act('commit_pushed', 'Sunitha', 1, 'x'), act('commit_pushed', 'Sunitha', 2, 'y'), act('commit_pushed', 'Sunitha', 3, 'z'), act('task_completed', 'Sunitha', 4, 'q')];

@@ -61,13 +61,17 @@ function buildStandupFacts({ activities = [], tasks = [], now = new Date(), wind
     const isDone = t.status === DONE;
     if (!isDone) team.openTasks += 1;
     const overdue = !isDone && t.deadline && new Date(t.deadline) < now;
-    const blockers = (t.dependencies || []).map((d) => byId.get(idOf(d))).filter((d) => d && d.status !== DONE);
+    const waitingOn = (t.dependencies || []).map((d) => byId.get(idOf(d))).filter((d) => d && d.status !== DONE);
+    // A task that has not started yet and waits for an earlier task is just queued, which is normal.
+    // It only counts as blocked when work has started and cannot continue.
+    const started = !WAITING_STATUSES.includes(t.status);
+    const blocked = !isDone && started && waitingOn.length > 0;
     if (overdue) team.overdue += 1;
-    if (!isDone && blockers.length) team.blocked += 1;
+    if (blocked) team.blocked += 1;
 
     const problems = [];
     if (overdue) problems.push(`"${t.title}" is overdue`);
-    if (!isDone && blockers.length) problems.push(`"${t.title}" is waiting on ${blockers.map((b) => `"${b.title}"`).join(', ')}`);
+    if (blocked) problems.push(`"${t.title}" has started but is waiting on ${waitingOn.map((b) => `"${b.title}"`).join(', ')}`);
 
     if (t.assignee) {
       const p = person(t.assignee);
