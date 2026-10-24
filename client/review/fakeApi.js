@@ -3,7 +3,7 @@ import { ids, token } from './token'
 export { ids, token }
 
 // A pretend FlowSync API that answers with the exact response shapes the real server returned in our tests.
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok' } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -242,9 +242,10 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     }
     if (url === `/projects/${P}/github/sync`) {
       if (role === 'Viewer') return fail(err(403, 'Viewers cannot sync a repository'))
-      return ok({ success: true, recorded: { commits: 2, prsOpened: 1, prsMerged: 0 }, skippedAlreadyRecorded: 3,
+      return ok({ success: true, repo: 'sunithaa42/FlowSync', recorded: { commits: 2, prsOpened: 1, prsMerged: 0 }, skippedAlreadyRecorded: 3,
+        skippedNoChanges: githubIgnored ? { commits: 2, pullRequests: 0, alreadyIgnored: 0 } : { commits: 0, pullRequests: 0, alreadyIgnored: 0 },
         tasksMoved: [{ ref: 'FS-0140ad', title: 'Build login page', from: 'Backlog', to: 'In Progress', because: 'commit 03914f7' }],
-        taskLinkNotes: ['FS-ffffff matches no active task in this project'], unmatchedGithubUsers: ['stranger'], lastSyncedAt: iso() })
+        taskLinkNotes: githubIgnored ? ['FS-0140ad: commit bbb2222 changes no files, so it did not move the task'] : ['FS-ffffff matches no active task in this project'], unmatchedGithubUsers: ['stranger'], lastSyncedAt: iso() })
     }
     if (url === `/projects/${P}/github/task-refs`) return ok({ success: true, howTo: 'x', tasks: state.tasks.map((t) => ({ _id: t._id, ref: `FS-${t._id.slice(-6)}`, title: t.title, status: t.status })) })
 
