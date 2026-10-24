@@ -7,7 +7,7 @@ const GithubEvent = require('../models/GithubEvent');
 const { recordActivity, makeTaskIndex, applyEventToTasks, applyAuthorFallback, refFor, extractRefs } = require('../utils/githubTaskLinks');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { encrypt, decrypt } = require('../utils/tokenCrypto');
-const { GithubError, getRepo, listCommits, listPulls, getCommit, getPull } = require('../utils/githubClient');
+const { GithubError, getRepo, listCommits, listPulls, getCommit, getPull, listPullFiles } = require('../utils/githubClient');
 const { filterRealEvents, markerKey } = require('../utils/githubChanges');
 const { parseRepo, buildEvents } = require('../utils/githubEvents');
 
@@ -173,6 +173,7 @@ async function syncRepository(req, res) {
         extractRefs,
         getCommit: (sha) => getCommit(token, owner, name, sha),
         getPull: (number) => getPull(token, owner, name, number),
+        getPullFiles: (number) => listPullFiles(token, owner, name, number),
       });
     } catch (error) {
       if (error instanceof GithubError) return fail(res, error.status, error.message);

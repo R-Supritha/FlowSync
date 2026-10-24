@@ -78,6 +78,11 @@ function getPull(token, owner, name, number) {
   return github(`${repoPath(owner, name)}/pulls/${encodeURIComponent(number)}`, token);
 }
 
+// The files of one pull request (first 100), used to tell empty files from real changes.
+function listPullFiles(token, owner, name, number) {
+  return github(`${repoPath(owner, name)}/pulls/${encodeURIComponent(number)}/files`, token, { per_page: 100 });
+}
+
 function listPulls(token, owner, name) {
   return github(`${repoPath(owner, name)}/pulls`, token, {
     state: 'all',
@@ -87,4 +92,4 @@ function listPulls(token, owner, name) {
   });
 }
 
-module.exports = { GithubError, getRepo, listCommits, listPulls, getCommit, getPull };
+module.exports = { GithubError, getRepo, listCommits, listPulls, getCommit, getPull, listPullFiles };

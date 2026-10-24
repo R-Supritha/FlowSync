@@ -16,6 +16,12 @@ function minChangedLines() {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
+// Git stores an empty file under one fixed id. A commit that only adds (or removes) empty files changes
+// no content, so it is not progress either: "git add empty.txt" is the same shortcut as --allow-empty.
+const EMPTY_BLOB_SHA = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
+const isEmptyFile = (f) => Boolean(f) && (f.status === 'added' || f.status === 'removed') && f.sha === EMPTY_BLOB_SHA;
+const meaningfulFiles = (files) => files.filter((f) => !isEmptyFile(f));
+
 function enoughChange(fileCount, lines, minLines) {
   if (fileCount < 1) return false;
   if (lines === 0) return true; // binary file, rename or mode change only: still a real change
@@ -28,7 +34,7 @@ function commitHasChanges(detail, minLines = minChangedLines()) {
   const files = Array.isArray(detail.files) ? detail.files : null;
   const total = detail.stats && typeof detail.stats.total === 'number' ? detail.stats.total : null;
   if (files === null && total === null) return true; // GitHub gave no change information at all
-  const fileCount = files ? files.length : (total > 0 ? 1 : 0);
+  const fileCount = files ? meaningfulFiles(files).length : (total > 0 ? 1 : 0);
   const lines = total !== null
     ? total
     : files.reduce((n, f) => n + (Number(f.additions) || 0) + (Number(f.deletions) || 0), 0);
@@ -39,7 +45,10 @@ function commitHasChanges(detail, minLines = minChangedLines()) {
 function pullHasChanges(detail, minLines = minChangedLines()) {
   if (!detail || typeof detail !== 'object' || typeof detail.changed_files !== 'number') return true;
   const lines = (Number(detail.additions) || 0) + (Number(detail.deletions) || 0);
-  return enoughChange(detail.changed_files, lines, minLines);
+  // When the caller also fetched the file list (only needed if there are files but no text lines),
+  // files that are just empty files do not count.
+  const fileCount = Array.isArray(detail.files) ? meaningfulFiles(detail.files).length : detail.changed_files;
+  return enoughChange(fileCount, lines, minLines);
 }
 
 // Runs fn over items with at most `limit` running at the same time. Rejects on the first error.
@@ -64,7 +73,7 @@ const markerKey = (ev) => ev.key.replace(':', ':empty:');
 // knownKeys: Set of GithubEvent keys that already exist (recorded events AND empty markers)
 // Returns { events: the real ones, skipped: counts, notes: [...], markers: [keys to store] }.
 // Events already recorded are kept, so the caller counts them as duplicates as before.
-async function filterRealEvents({ events, knownKeys, getCommit, getPull, extractRefs, minLines = minChangedLines(), concurrency = 5 }) {
+async function filterRealEvents({ events, knownKeys, getCommit, getPull, getPullFiles, extractRefs, minLines = minChangedLines(), concurrency = 5 }) {
   const none = { commits: 0, pullRequests: 0, alreadyIgnored: 0 };
   if (!requireChanges()) return { events, skipped: none, notes: [], markers: [] };
 
@@ -78,7 +87,14 @@ async function filterRealEvents({ events, knownKeys, getCommit, getPull, extract
     commitOk.set(ev.meta.sha, commitHasChanges(await getCommit(ev.meta.sha), minLines));
   });
   await mapLimit(pulls, concurrency, async (number) => {
-    pullOk.set(number, pullHasChanges(await getPull(number), minLines));
+    let detail = await getPull(number);
+    // A pull request with files but no text lines may be a picture, a rename or only empty files:
+    // look at its files to tell them apart (one extra call, only in that rare case).
+    const noLines = detail && (Number(detail.additions) || 0) + (Number(detail.deletions) || 0) === 0;
+    if (getPullFiles && detail && Number(detail.changed_files) > 0 && noLines) {
+      detail = { ...detail, files: await getPullFiles(number) };
+    }
+    pullOk.set(number, pullHasChanges(detail, minLines));
   });
 
   const kept = [];
@@ -101,4 +117,4 @@ async function filterRealEvents({ events, knownKeys, getCommit, getPull, extract
   return { events: kept, skipped, notes: [...notes], markers };
 }
 
-module.exports = { requireChanges, minChangedLines, commitHasChanges, pullHasChanges, mapLimit, markerKey, filterRealEvents };
+module.exports = { requireChanges, minChangedLines, commitHasChanges, pullHasChanges, isEmptyFile, EMPTY_BLOB_SHA, mapLimit, markerKey, filterRealEvents };
