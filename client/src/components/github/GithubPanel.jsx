@@ -56,12 +56,21 @@ export default function GithubPanel({ projectId }) {
     setSyncing(true)
     try {
       const res = await githubApi.sync(projectId)
+      const moved = (res.tasksMoved || []).length
+      const ignored = (res.skippedNoChanges?.commits || 0) + (res.skippedNoChanges?.pullRequests || 0)
       dispatch(
         pushToast(
-          `Synced ${res.repo}: ${res.recorded.commits} commits, ${res.recorded.prsOpened} PRs opened, ${res.recorded.prsMerged} merged`,
+          `Synced ${res.repo}: ${res.recorded.commits} commits, ${res.recorded.prsOpened} PRs opened, ${res.recorded.prsMerged} merged` +
+            (moved ? `; ${moved} task${moved === 1 ? '' : 's'} moved` : ''),
           'success',
         ),
       )
+      // Empty commits / pull requests (no changed files) are not counted as progress. Say so, otherwise
+      // a commit that "did nothing" would look like a bug.
+      if (ignored) {
+        const why = (res.taskLinkNotes || []).slice(0, 2).join(' ')
+        dispatch(pushToast(`${ignored} empty commit${ignored === 1 ? '' : 's'} or pull request${ignored === 1 ? '' : 's'} ignored (no file changes).${why ? ' ' + why : ''}`, 'info'))
+      }
       load()
     } catch (e) {
       dispatch(pushToast(errorMessage(e, 'Sync failed'), 'error'))
