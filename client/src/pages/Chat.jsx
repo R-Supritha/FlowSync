@@ -3,11 +3,12 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useSearchParams } from 'react-router-dom'
 import { chatApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import { channelRead, fetchChannels, messageArrived, upsertChannel } from '../store/chatSlice'
+import { channelCleared, channelRead, fetchChannels, messageArrived, removeChannel, upsertChannel } from '../store/chatSlice'
 import { pushToast } from '../store/uiSlice'
 import useChatStream from '../hooks/useChatStream'
 import MessageItem, { MAX_TEXT } from '../components/chat/MessageItem'
 import NewChannelDialog from '../components/chat/NewChannelDialog'
+import EditChannelDialog from '../components/chat/EditChannelDialog'
 import { ConfirmDialog, ErrorState, Spinner } from '../components/ui'
 
 const POLL_MS = 15000 // only used while the live stream is down
@@ -29,6 +30,9 @@ export default function ChatPage() {
   const [newChannel, setNewChannel] = useState(false)
   const [toDelete, setToDelete] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [editing, setEditing] = useState(false)
+  const [toClear, setToClear] = useState(false)
+  const [toRemove, setToRemove] = useState(false)
   const listRef = useRef(null)
   const stick = useRef(true)
   const activeRef = useRef(null)
@@ -101,6 +105,11 @@ export default function ChatPage() {
       replaceMessage(ev.message)
     } else if (ev.type === 'message_deleted') {
       setView((v) => ({ ...v, items: v.items.map((x) => (x._id === ev.id ? { ...x, text: '', deleted: true } : x)) }))
+    } else if (ev.type === 'channel_cleared') {
+      dispatch(channelCleared(ev.channel))
+      setView((v) => (v.channelId === ev.channel ? { ...v, items: [], hasMore: false } : v))
+    } else if (ev.type === 'channel_deleted') {
+      dispatch(removeChannel(ev.id))
     } else if (ev.type === 'channel') {
       dispatch(fetchChannels(workspaceId))
     }
@@ -171,6 +180,29 @@ export default function ChatPage() {
     }
   }
 
+  async function clearChat() {
+    const id = channel._id
+    setToClear(false)
+    try {
+      await chatApi.clear(id)
+      setView((v) => (v.channelId === id ? { ...v, items: [], hasMore: false } : v))
+      dispatch(channelCleared(id))
+    } catch (e) {
+      dispatch(pushToast(errorMessage(e, 'Could not clear the chat'), 'error'))
+    }
+  }
+
+  async function deleteThisChannel() {
+    const id = channel._id
+    setToRemove(false)
+    try {
+      await chatApi.removeChannel(id)
+      dispatch(removeChannel(id)) // the page then falls back to #general by itself
+    } catch (e) {
+      dispatch(pushToast(errorMessage(e, 'Could not delete the channel'), 'error'))
+    }
+  }
+
   async function confirmDelete() {
     const m = toDelete
     setToDelete(null)
@@ -222,6 +254,13 @@ export default function ChatPage() {
               <h1># {channel.name}</h1>
               <span className="fs-muted">{channel.description}</span>
               <span className="fs-muted" style={{ marginLeft: 'auto' }} role="status">{live ? '● Live' : '○ Reconnecting…'}</span>
+              {canManage && (
+                <div className="fs-row" style={{ gap: 4 }}>
+                  {channel.kind === 'custom' && <button type="button" className="fs-btn small ghost" aria-label="Edit channel" onClick={() => setEditing(true)}>Edit</button>}
+                  <button type="button" className="fs-btn small ghost" aria-label="Clear chat" onClick={() => setToClear(true)}>Clear chat</button>
+                  {channel.kind === 'custom' && <button type="button" className="fs-btn small ghost" aria-label="Delete channel" onClick={() => setToRemove(true)}>Delete channel</button>}
+                </div>
+              )}
             </header>
 
             <div className="chat-messages" ref={listRef} onScroll={onScroll}>
@@ -283,6 +322,27 @@ export default function ChatPage() {
             dispatch(upsertChannel(c))
             setParams({ c: c._id })
           }}
+        />
+      )}
+      {editing && channel && <EditChannelDialog channel={channel} onClose={() => setEditing(false)} onSaved={(c) => dispatch(upsertChannel(c))} />}
+      {toClear && channel && (
+        <ConfirmDialog
+          title="Clear this chat?"
+          message={`Every message in #${channel.name} will be deleted for everyone. This cannot be undone.`}
+          confirmLabel="Clear chat"
+          danger
+          onCancel={() => setToClear(false)}
+          onConfirm={clearChat}
+        />
+      )}
+      {toRemove && channel && (
+        <ConfirmDialog
+          title="Delete this channel?"
+          message={`#${channel.name} and all its messages will be deleted for everyone. This cannot be undone.`}
+          confirmLabel="Delete channel"
+          danger
+          onCancel={() => setToRemove(false)}
+          onConfirm={deleteThisChannel}
         />
       )}
       {toDelete && (

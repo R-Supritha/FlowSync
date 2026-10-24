@@ -360,12 +360,42 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       const hasMore = params.after ? false : (params.before ? all.filter((x) => x._id < params.before).length : all.length) > limit
       return ok({ success: true, messages: JSON.parse(JSON.stringify(list)), hasMore })
     }
+    if (mm && method === 'delete') {
+      if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can clear a channel'))
+      const before = state.messages.length
+      state.messages = state.messages.filter((x) => x.channel !== mm[1])
+      return ok({ success: true, deleted: before - state.messages.length })
+    }
     if (mm && method === 'post') {
       if (role === 'Viewer') return fail(err(403, 'Viewers can read messages but not post'))
       if (!String(body.text || '').trim()) return fail(err(400, 'A message cannot be empty'))
       const msg = chatMsg(mm[1], me, String(body.text).trim(), { createdAt: iso(0) })
       state.messages.push(msg)
       return ok({ success: true, message: msg }, 201)
+    }
+    mm = m(/^\/channels\/([\w-]+)$/)
+    if (mm && method === 'patch') {
+      if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can change channels'))
+      const c = state.channels.find((x) => x._id === mm[1])
+      if (!c) return fail(err(404, 'Channel not found'))
+      if (c.kind !== 'custom') return fail(err(400, 'This channel is managed by FlowSync and cannot be changed'))
+      if (body.name !== undefined) {
+        const name = String(body.name).trim().toLowerCase().replace(/\s+/g, '-').replace(/^#/, '')
+        if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) return fail(err(400, 'Channel names use lowercase letters, numbers and dashes, start with a letter or number, and are at most 40 characters'))
+        if (state.channels.some((x) => x.name === name && x._id !== c._id)) return fail(err(409, 'A channel with that name already exists'))
+        c.name = name
+      }
+      if (body.description !== undefined) c.description = String(body.description).trim()
+      return ok({ success: true, channel: JSON.parse(JSON.stringify(c)), archived: false })
+    }
+    if (mm && method === 'delete') {
+      if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can delete channels'))
+      const c = state.channels.find((x) => x._id === mm[1])
+      if (!c) return fail(err(404, 'Channel not found'))
+      if (c.kind !== 'custom') return fail(err(400, 'This channel is managed by FlowSync and cannot be deleted. You can clear its messages instead.'))
+      state.channels = state.channels.filter((x) => x._id !== c._id)
+      state.messages = state.messages.filter((x) => x.channel !== c._id)
+      return ok({ success: true })
     }
     mm = m(/^\/channels\/([\w-]+)\/read$/)
     if (mm && method === 'post') { const c = state.channels.find((x) => x._id === mm[1]); if (c) c.unread = 0; return ok({ success: true }) }

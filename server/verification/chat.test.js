@@ -44,6 +44,7 @@ stub('models/Channel.js', {
   create: async (doc) => {
     if (db.channels.some((c) => String(c.workspace) === String(doc.workspace) && c.name === doc.name)) throw dup();
     const c = withSave(db.channels, { _id: nextId(), description: '', isArchived: false, createdAt: new Date(), ...doc }, ['workspace', 'name']);
+    Object.defineProperty(c, 'deleteOne', { enumerable: false, value: async () => { db.channels = db.channels.filter((x) => x !== c); } });
     db.channels.push(c); return c;
   },
 });
@@ -53,11 +54,13 @@ stub('models/Message.js', {
   find: (q) => chain(() => db.messages.filter((m) => String(m.channel) === String(q.channel)
     && (!q._id || ((q._id.$lt === undefined || String(m._id) < String(q._id.$lt)) && (q._id.$gt === undefined || String(m._id) > String(q._id.$gt)))))),
   findOne: (q) => chain(() => [...db.messages].reverse().find((m) => String(m.channel) === String(q.channel) && !m.deletedAt) || null),
+  deleteMany: async (q) => { const before = db.messages.length; db.messages = db.messages.filter((m) => String(m.channel) !== String(q.channel)); return { deletedCount: before - db.messages.length }; },
   countDocuments: async (q) => db.messages.filter((m) => String(m.channel) === String(q.channel) && new Date(m.createdAt) > new Date(q.createdAt.$gt) && String(m.author) !== String(q.author.$ne) && !m.deletedAt).length,
 });
 stub('models/ChannelRead.js', {
   find: (q) => chain(() => db.reads.filter((r) => String(r.user) === String(q.user) && q.channel.$in.map(String).includes(String(r.channel)))),
   create: async (doc) => { if (db.reads.some((r) => String(r.user) === String(doc.user) && String(r.channel) === String(doc.channel))) throw dup(); db.reads.push({ ...doc }); },
+  deleteMany: async (q) => { db.reads = db.reads.filter((r) => String(r.channel) !== String(q.channel)); },
   updateOne: async (q, upd) => { const r = db.reads.find((x) => String(x.user) === String(q.user) && String(x.channel) === String(q.channel)); if (r) Object.assign(r, upd.$set); else db.reads.push({ user: q.user, channel: q.channel, ...upd.$set }); },
 });
 stub('models/Project.js', { find: (q) => chain(() => db.projects.filter((p) => String(p.workspace) === String(q.workspace) && p.isArchived === q.isArchived)) });
@@ -292,4 +295,85 @@ test('FR27 stream: another workspace never sees these messages; non-members cann
   assert.ok(!other.seen.text.includes('private to WS')); other.close();
   role = null;
   const denied = await openStream(WS); assert.equal(denied.seen.status, 404); denied.close();
+});
+
+
+// ================================================================ clear chat, edit and delete channels, who can get in
+const seed = (channel, author, text, n = 0) => db.messages.push(withSave(db.messages, { _id: nextId(), channel, workspace: WS, author, text, createdAt: new Date(Date.now() - 100000 + n * 1000) }));
+
+test('clear chat: only Admin or Manager; it removes every message in that channel and nothing else', async () => {
+  const g = await general(); const proj = (await channelsOf()).find((c) => c.kind === 'project');
+  seed(g._id, 'u1', 'a', 1); seed(g._id, 'u2', 'b', 2); seed(g._id, 'u2', 'c', 3); seed(proj._id, 'u1', 'project message', 4);
+  role = 'Member'; assert.equal((await call('DELETE', `/channels/${g._id}/messages`)).status, 403);
+  role = 'Viewer'; assert.equal((await call('DELETE', `/channels/${g._id}/messages`)).status, 403);
+  assert.equal(db.messages.length, 4);
+  role = 'Manager';
+  const r = await call('DELETE', `/channels/${g._id}/messages`);
+  assert.equal(r.status, 200); assert.equal(r.data.deleted, 3);
+  assert.deepEqual((await call('GET', `/channels/${g._id}/messages`)).data.messages, []);
+  assert.deepEqual((await call('GET', `/channels/${proj._id}/messages`)).data.messages.map((m) => m.text), ['project message']);   // other channels untouched
+  assert.equal((await call('DELETE', `/channels/${g._id}/messages`)).data.deleted, 0);                                          // clearing an empty channel is harmless
+  role = null; assert.equal((await call('DELETE', `/channels/${g._id}/messages`)).status, 404);
+  assert.equal((await call('DELETE', '/channels/abc/messages')).status, 400);
+});
+test('clear chat works on project channels too, and unread counts go back to zero', async () => {
+  const proj = (await channelsOf()).find((c) => c.kind === 'project');
+  db.reads.find((r) => r.channel === proj._id).lastReadAt = new Date(0);
+  seed(proj._id, 'u2', 'new one', 5);
+  assert.equal((await channelsOf()).find((c) => c.kind === 'project').unread, 1);
+  assert.equal((await call('DELETE', `/channels/${proj._id}/messages`)).status, 200);
+  const after = (await channelsOf()).find((c) => c.kind === 'project');
+  assert.equal(after.unread, 0); assert.equal(after.lastMessage, null);
+});
+test('delete channel: only custom channels, only Admin or Manager; its messages go with it', async () => {
+  const made = (await call('POST', `/workspaces/${WS}/channels`, { name: 'ideas' })).data.channel;
+  const g = await general(); const proj = (await channelsOf()).find((c) => c.kind === 'project');
+  seed(made._id, 'u1', 'x', 1); seed(made._id, 'u2', 'y', 2); await call('POST', `/channels/${made._id}/read`);
+  role = 'Member'; assert.equal((await call('DELETE', `/channels/${made._id}`)).status, 403);
+  role = 'Admin';
+  for (const managed of [g, proj]) {
+    const r = await call('DELETE', `/channels/${managed._id}`);
+    assert.equal(r.status, 400); assert.match(r.data.message, /managed by FlowSync.*clear its messages instead/);
+  }
+  const ok = await call('DELETE', `/channels/${made._id}`);
+  assert.equal(ok.status, 200);
+  assert.ok(!(await channelsOf()).some((c) => c._id === made._id));
+  assert.equal(db.messages.filter((m) => m.channel === made._id).length, 0);
+  assert.equal(db.reads.filter((r) => r.channel === made._id).length, 0);
+  assert.equal((await call('GET', `/channels/${made._id}/messages`)).status, 404);
+  assert.equal((await call('DELETE', `/channels/${made._id}`)).status, 404);
+  assert.equal((await call('POST', `/workspaces/${WS}/channels`, { name: 'ideas' })).status, 201);                      // the name is free again
+});
+test('edit channel: a Manager can change the description or the name of a custom channel; a Member cannot', async () => {
+  const made = (await call('POST', `/workspaces/${WS}/channels`, { name: 'design', description: 'old' })).data.channel;
+  role = 'Member'; assert.equal((await call('PATCH', `/channels/${made._id}`, { description: 'hacked' })).status, 403);
+  role = 'Manager';
+  const d = await call('PATCH', `/channels/${made._id}`, { description: ' new words ' });
+  assert.equal(d.status, 200); assert.equal(d.data.channel.description, 'new words'); assert.equal(d.data.channel.name, 'design');
+  const n = await call('PATCH', `/channels/${made._id}`, { name: 'Design Crew', description: 'both' });
+  assert.equal(n.data.channel.name, 'design-crew'); assert.equal(n.data.channel.description, 'both');
+});
+test('clear and delete are announced live (channel_cleared, channel_deleted)', async () => {
+  const made = (await call('POST', `/workspaces/${WS}/channels`, { name: 'live-test' })).data.channel;
+  const s = await openStream(WS); await s.waitFor('event: ready');
+  await call('DELETE', `/channels/${made._id}/messages`);
+  await s.waitFor('event: channel_cleared'); await s.waitFor(made._id);
+  await call('DELETE', `/channels/${made._id}`);
+  await s.waitFor('event: channel_deleted'); await s.waitFor(made._id);
+  s.close();
+});
+test('ACCESS: a person added to the workspace later can open every channel, including each project\'s, and post', async () => {
+  const proj = (await channelsOf()).find((c) => c.kind === 'project');            // channels already exist
+  seed(proj._id, 'u2', 'welcome to the project chat', 1);
+  role = null; user = 'u9';
+  assert.equal((await call('GET', `/workspaces/${WS}/channels`)).status, 404);    // not in the workspace yet: nothing visible
+  role = 'Member';                                                                // they are added to the workspace
+  const list = (await call('GET', `/workspaces/${WS}/channels`)).data;
+  assert.deepEqual(list.channels.map((c) => c.name), ['general', 'library-management-system']);
+  assert.equal(list.channels.find((c) => c.kind === 'project').unread, 0);        // starts clean: no old messages marked unread
+  const history = await call('GET', `/channels/${proj._id}/messages`);
+  assert.deepEqual(history.data.messages.map((m) => m.text), ['welcome to the project chat']);
+  assert.equal((await call('POST', `/channels/${proj._id}/messages`, { text: 'hi, I just joined' })).status, 201);
+  db.projects.push({ _id: 'p-later', workspace: WS, name: 'Created Later', isArchived: false });   // a project made after they joined
+  assert.deepEqual((await call('GET', `/workspaces/${WS}/channels`)).data.channels.map((c) => c.name), ['general', 'created-later', 'library-management-system']);
 });

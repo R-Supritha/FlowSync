@@ -290,6 +290,112 @@ describe('FR27: history', () => {
   })
 })
 
+describe('clear chat, edit and delete channels, and who gets in', () => {
+  it('an Admin can clear a chat after confirming; the channel keeps existing but is empty', async () => {
+    const user = userEvent.setup()
+    const { server } = await mount()
+    await screen.findByText('Welcome everyone')
+    expect(screen.queryByRole('button', { name: 'Edit channel' })).not.toBeInTheDocument()       // #general is managed by FlowSync
+    expect(screen.queryByRole('button', { name: 'Delete channel' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Clear chat' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Clear this chat?' })
+    expect(dialog).toHaveTextContent('Every message in #general will be deleted for everyone')
+    await user.click(within(dialog).getByRole('button', { name: 'Clear chat' }))
+    await waitFor(() => expect(called(server, 'delete', '/channels/ch-general/messages')).toBeTruthy())
+    expect(await screen.findByText('No messages yet. Say hello.')).toBeInTheDocument()
+    expect(screen.queryByText('Welcome everyone')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '# general' })).toBeInTheDocument()
+  })
+
+  it('cancelling the clear dialog changes nothing', async () => {
+    const user = userEvent.setup()
+    const { server } = await mount()
+    await screen.findByText('Welcome everyone')
+    await user.click(screen.getByRole('button', { name: 'Clear chat' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Clear this chat?' })).getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByText('Welcome everyone')).toBeInTheDocument()
+    expect(calls(server, 'delete', '/channels/ch-general/messages')).toHaveLength(0)
+  })
+
+  it('Members and Viewers get no clear, edit or delete buttons', async () => {
+    for (const role of ['Member', 'Viewer']) {
+      cleanup()
+      await mount({ role })
+      await screen.findByText('Welcome everyone')
+      expect(screen.queryByRole('button', { name: 'Clear chat' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Edit channel' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Delete channel' })).not.toBeInTheDocument()
+    }
+  })
+
+  async function makeIdeasChannel(user) {
+    await screen.findByText('Welcome everyone')
+    await user.click(screen.getByRole('button', { name: 'New channel' }))
+    const dialog = await screen.findByRole('dialog', { name: 'New channel' })
+    await user.type(within(dialog).getByLabelText('Name'), 'ideas')
+    await user.click(within(dialog).getByRole('button', { name: 'Create channel' }))
+    await screen.findByRole('heading', { name: '# ideas' })
+  }
+
+  it('a channel you made can be renamed and given a new description; a taken name shows the reason', async () => {
+    const user = userEvent.setup()
+    const { server } = await mount()
+    await makeIdeasChannel(user)
+    await user.click(screen.getByRole('button', { name: 'Edit channel' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit channel' })
+    expect(within(dialog).getByLabelText('Name')).toHaveValue('ideas')
+    await user.clear(within(dialog).getByLabelText('Name')); await user.type(within(dialog).getByLabelText('Name'), 'general')
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('already exists')
+    await user.clear(within(dialog).getByLabelText('Name')); await user.type(within(dialog).getByLabelText('Name'), 'Big Ideas')
+    await user.type(within(dialog).getByLabelText('Description'), 'where ideas live')
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(calls(server, 'patch', '/channels/ch-ideas').at(-1).body).toEqual({ name: 'Big Ideas', description: 'where ideas live' }))
+    expect(await screen.findByRole('heading', { name: '# big-ideas' })).toBeInTheDocument()
+    expect(screen.getByText('where ideas live')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Edit channel' })).not.toBeInTheDocument()
+  })
+
+  it('a channel you made can be deleted after confirming, and you land back in #general', async () => {
+    const user = userEvent.setup()
+    const { server } = await mount()
+    await makeIdeasChannel(user)
+    await user.click(screen.getByRole('button', { name: 'Delete channel' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Delete this channel?' })
+    expect(dialog).toHaveTextContent('#ideas and all its messages will be deleted for everyone')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete channel' }))
+    await waitFor(() => expect(called(server, 'delete', '/channels/ch-ideas')).toBeTruthy())
+    expect(await screen.findByRole('heading', { name: '# general' })).toBeInTheDocument()
+    expect(within(screen.getByRole('navigation', { name: 'Channels' })).queryByRole('button', { name: /# ideas/ })).not.toBeInTheDocument()
+  })
+
+  it('a chat cleared, or a channel deleted, by someone else disappears live', async () => {
+    const user = userEvent.setup()
+    await mount()
+    await makeIdeasChannel(user)
+    await waitFor(() => expect(streamOpen).toBe(true))
+    await user.click(within(screen.getByRole('navigation', { name: 'Channels' })).getByRole('button', { name: /# general/ }))
+    await screen.findByText('Welcome everyone')
+    await live('channel_cleared', { channel: 'ch-general' })
+    expect(await screen.findByText('No messages yet. Say hello.')).toBeInTheDocument()
+    await live('channel_deleted', { id: 'ch-ideas' })
+    await waitFor(() => expect(within(screen.getByRole('navigation', { name: 'Channels' })).queryByRole('button', { name: /# ideas/ })).not.toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: '# general' })).toBeInTheDocument()
+  })
+
+  it('a person added to the workspace sees every channel, including the project\'s, and can post in it', async () => {
+    const user = userEvent.setup()
+    const { server } = await mount({ role: 'Member' })
+    const nav = await screen.findByRole('navigation', { name: 'Channels' })
+    expect(within(nav).getByRole('button', { name: /# general/ })).toBeInTheDocument()
+    await user.click(within(nav).getByRole('button', { name: /# demo-project/ }))
+    await screen.findByText('No messages yet. Say hello.')
+    await user.type(screen.getByLabelText('Message #demo-project'), 'hi, I am on this project too{Enter}')
+    await waitFor(() => expect(called(server, 'post', '/channels/ch-proj/messages').body).toEqual({ text: 'hi, I am on this project too' }))
+    expect(await screen.findByText('hi, I am on this project too')).toBeInTheDocument()
+  })
+})
+
 describe('quiet console', () => {
   it('the chat page opens, sends, switches channel and closes without a React warning or error', async () => {
     const user = userEvent.setup()

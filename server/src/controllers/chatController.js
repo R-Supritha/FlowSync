@@ -208,6 +208,45 @@ async function updateChannel(req, res) {
   }
 }
 
+// DELETE /channels/:id/messages   (Admin or Manager)  "Clear chat": removes every message in the channel.
+async function clearChannel(req, res) {
+  try {
+    const loaded = await loadChannel(req, res);
+    if (!loaded) return;
+    const { channel, role } = loaded;
+    if (!isManagerRole(role)) return fail(res, 403, 'Only Admin or Manager can clear a channel');
+
+    const result = await Message.deleteMany({ channel: channel._id });
+    publish(String(channel.workspace), { type: 'channel_cleared', channel: String(channel._id) });
+    return res.json({ success: true, deleted: (result && result.deletedCount) || 0 });
+  } catch (error) {
+    return serverError(res, 'Failed to clear the channel', error);
+  }
+}
+
+// DELETE /channels/:id   (Admin or Manager, custom channels only)
+// #general and project channels are made by FlowSync (a deleted project channel would just come back),
+// so those can be cleared but not deleted.
+async function deleteChannel(req, res) {
+  try {
+    const loaded = await loadChannel(req, res);
+    if (!loaded) return;
+    const { channel, role } = loaded;
+    if (!isManagerRole(role)) return fail(res, 403, 'Only Admin or Manager can delete channels');
+    if (channel.kind !== 'custom') {
+      return fail(res, 400, 'This channel is managed by FlowSync and cannot be deleted. You can clear its messages instead.');
+    }
+
+    await Message.deleteMany({ channel: channel._id });
+    await ChannelRead.deleteMany({ channel: channel._id });
+    await channel.deleteOne();
+    publish(String(channel.workspace), { type: 'channel_deleted', id: String(channel._id) });
+    return res.json({ success: true });
+  } catch (error) {
+    return serverError(res, 'Failed to delete the channel', error);
+  }
+}
+
 // GET /channels/:id/messages?before=<id>&limit=50   (older page)  or  ?after=<id>  (newer than a message)
 async function listMessages(req, res) {
   try {
@@ -358,6 +397,6 @@ async function stream(req, res) {
 }
 
 module.exports = {
-  listChannels, createChannel, updateChannel, listMessages, sendMessage, editMessage, deleteMessage, markRead, stream,
+  listChannels, createChannel, updateChannel, clearChannel, deleteChannel, listMessages, sendMessage, editMessage, deleteMessage, markRead, stream,
   slugify, parseChannelName, parseText, MAX_TEXT,
 };

@@ -30,6 +30,17 @@ const chatSlice = createSlice({
       c.lastMessage = { text: String(message.text || '').slice(0, 80), createdAt: message.createdAt, author: message.author && message.author.name }
       if (!mine && !active) c.unread = (c.unread || 0) + 1
     },
+    // every message of the channel was removed ("Clear chat")
+    channelCleared(state, action) {
+      const c = state.channels.find((x) => x._id === action.payload)
+      if (c) {
+        c.unread = 0
+        c.lastMessage = null
+      }
+    },
+    removeChannel(state, action) {
+      state.channels = state.channels.filter((x) => x._id !== action.payload)
+    },
     upsertChannel(state, action) {
       const incoming = action.payload
       const i = state.channels.findIndex((x) => x._id === incoming._id)
@@ -61,6 +72,6 @@ const chatSlice = createSlice({
   },
 })
 
-export const { channelRead, messageArrived, upsertChannel } = chatSlice.actions
+export const { channelRead, channelCleared, messageArrived, removeChannel, upsertChannel } = chatSlice.actions
 export const selectUnreadTotal = (s) => s.chat.channels.reduce((n, c) => n + (c.unread || 0), 0)
 export default chatSlice.reducer

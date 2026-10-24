@@ -14,6 +14,8 @@ router.get('/workspaces/:workspaceId/channels', protect, validateObjectId('works
 router.post('/workspaces/:workspaceId/channels', protect, validateObjectId('workspaceId'), c.createChannel); // FR26
 router.get('/workspaces/:workspaceId/chat/stream', protect, validateObjectId('workspaceId'), c.stream); // FR27
 router.patch('/channels/:id', protect, validateObjectId('id'), c.updateChannel); // FR26
+router.delete('/channels/:id', protect, validateObjectId('id'), c.deleteChannel); // FR26
+router.delete('/channels/:id/messages', protect, validateObjectId('id'), c.clearChannel); // FR27 clear chat
 router.get('/channels/:id/messages', protect, validateObjectId('id'), c.listMessages); // FR27
 router.post('/channels/:id/messages', protect, validateObjectId('id'), sendLimit, c.sendMessage); // FR27
 router.post('/channels/:id/read', protect, validateObjectId('id'), c.markRead); // FR27
