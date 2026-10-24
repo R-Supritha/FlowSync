@@ -40,12 +40,12 @@ async function buildProfile(user, workspaceFilter) {
 
 async function getMyProfile(req, res) {
   try {
-    const user = await User.findById(req.user.id).select(PUBLIC_FIELDS).lean();
+    const user = await User.findById(req.user.id).select(`${PUBLIC_FIELDS} emailVerified`).lean();
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
     const profile = await buildProfile(user, { 'members.user': req.user.id });
-    res.json({ success: true, ...profile });
+    res.json({ success: true, ...profile, emailVerified: user.emailVerified !== false });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to load profile', error: error.message });
   }

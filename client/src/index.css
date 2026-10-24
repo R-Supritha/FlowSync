@@ -1906,3 +1906,17 @@ code {
     width: 150px;
   }
 }
+
+/* Email confirmation banner (FR1) */
+.verify-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--warn);
+  color: #1b1b1b;
+  font-size: 0.95em;
+}
+.verify-banner span {
+  flex: 1;
+}

@@ -1,9 +1,9 @@
 // A small per-person limit: at most `max` requests in any `windowMs`. In memory, so it resets when the
 // server restarts. Used to stop one person flooding a channel.
-function createLimiter({ windowMs, max, message }) {
+function createLimiter({ windowMs, max, message, key: keyOf }) {
   const hits = new Map();
   const middleware = (req, res, next) => {
-    const key = String(req.user && req.user.id);
+    const key = keyOf ? String(keyOf(req)) : String(req.user && req.user.id);
     const now = Date.now();
     const recent = (hits.get(key) || []).filter((t) => now - t < windowMs);
     if (recent.length >= max) {

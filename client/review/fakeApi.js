@@ -3,7 +3,7 @@ import { ids, token } from './token'
 export { ids, token }
 
 // A pretend FlowSync API that answers with the exact response shapes the real server returned in our tests.
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -80,7 +80,7 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
 
     if (url === '/health') return ok({ success: true, database: 'connected' })
     if (url === '/auth/login') return ok({ success: true, token, user: { id: ids.me, name: 'Sunitha', email: 'sunitha@test.com', role: 'Member' } })
-    if (url === '/workspaces' && method === 'get') return ok({ success: true, workspaces: [workspace] })
+    if (url === '/workspaces' && method === 'get') return ok({ success: true, workspaces: state.workspaceDeleted ? [] : [JSON.parse(JSON.stringify(workspace))] })
     if (url === `/workspaces/${W}/presence`) return ok({ success: true, members: [{ user: me, hidden: false }, { user: other, hidden: true }] })
     if (url === `/workspaces/${W}/projects`) return ok({ success: true, projects: params.archived ? [] : [project()] })
     if (url === '/project-templates') return ok({ success: true, templates: [{ id: 'blank', name: 'Blank Project', description: 'Empty' }] })
@@ -225,7 +225,7 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     if (url === '/presence/status') return ok({ success: true, presence: { status: body.status || 'Active', source: 'manual', workMode: body.workMode || null, workModeSource: 'manual' } })
     if (url === '/settings/privacy' && method === 'get') return ok({ success: true, privacy: state.privacy })
     if (url === '/settings/privacy' && method === 'put') { Object.assign(state.privacy, body); return ok({ success: true, privacy: state.privacy }) }
-    if (url === '/profile' && method === 'get') return ok({ success: true, user: state.profile, workspaces: [{ _id: W, name: 'My Test Workspace' }], projects: [{ _id: P, name: 'Demo Project' }] })
+    if (url === '/profile' && method === 'get') return ok({ success: true, emailVerified: verifiedOnServer, user: state.profile, workspaces: [{ _id: W, name: 'My Test Workspace' }], projects: [{ _id: P, name: 'Demo Project' }] })
     if (url === '/profile' && method === 'put') { Object.assign(state.profile, body); return ok({ success: true, user: state.profile }) }
     if (url === `/users/${ids.other}/profile`) return ok({ success: true, user: { ...other, bio: 'Teammate bio', skills: ['Node'], githubUsername: 'tester2' } })
     mm = m(/^\/users\/(\w+)\/contributions(\/day)?$/)
@@ -411,6 +411,48 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       if (!msg || (msg.author._id !== ids.me && !isManagerRole)) return fail(err(403, 'You can only delete your own messages'))
       msg.deleted = true; msg.text = ''
       return ok({ success: true })
+    }
+
+    // ---- FR1 email links and password reset, FR2 workspace settings ----
+    if (url === '/auth/forgot-password' && method === 'post') {
+      if (!/^\S+@\S+\.\S+$/.test(String(body.email || ''))) return fail(err(400, 'Enter a valid email address'))
+      return ok({ success: true, message: 'If that email is registered, a reset link has been sent. Check your inbox.' })
+    }
+    if (url === '/auth/reset-password' && method === 'post') {
+      if (String(body.password || '').length < 8) return fail(err(400, 'Password must be at least 8 characters'))
+      if (body.token !== 'a'.repeat(64)) return fail(err(400, 'This reset link is invalid or has expired'))
+      return ok({ success: true, message: 'Your password was changed. You can sign in now.' })
+    }
+    if (url === '/auth/verify-email' && method === 'post') {
+      if (body.token !== 'b'.repeat(64)) return fail(err(400, 'This verification link is invalid or has expired'))
+      return ok({ success: true, message: 'Your email address is confirmed.' })
+    }
+    if (url === '/auth/resend-verification' && method === 'post') {
+      if (resend === 'limit') return fail(err(429, 'Too many emails requested. Please wait 600 seconds.'))
+      return ok({ success: true, message: 'A new confirmation link was sent. Check your inbox.' })
+    }
+    const adminsNow = () => workspace.members.filter((x) => x.role === 'Admin').length
+    if (url === `/workspaces/${W}` && method === 'patch') {
+      if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can change workspace settings'))
+      const name = String(body.name || '').trim()
+      if (!name) return fail(err(400, 'Workspace name is required'))
+      workspace.name = name; workspace.description = String(body.description || '').trim()
+      return ok({ success: true, workspace: JSON.parse(JSON.stringify(workspace)) })
+    }
+    if (url === `/workspaces/${W}` && method === 'delete') {
+      if (role !== 'Admin') return fail(err(403, 'Only Admin can delete a workspace'))
+      if (body.confirmName !== workspace.name) return fail(err(400, 'Type the exact workspace name to confirm the deletion'))
+      state.workspaceDeleted = true
+      return ok({ success: true, deleted: { projects: 1 } })
+    }
+    mm = m(/^\/workspaces\/(\w+)\/members\/(\w+)$/)
+    if (mm && method === 'patch') {
+      if (role !== 'Admin') return fail(err(403, 'Only Admin can change roles'))
+      const target = workspace.members.find((x) => String(x.user) === mm[2])
+      if (!target) return fail(err(404, 'That person is not a member of this workspace'))
+      if (target.role === 'Admin' && body.role !== 'Admin' && adminsNow() === 1) return fail(err(400, 'A workspace must keep at least one Admin. Make someone else Admin first.'))
+      target.role = body.role
+      return ok({ success: true, workspace: JSON.parse(JSON.stringify(workspace)) })
     }
 
     return fail(err(404, `unmocked ${method} ${url}`))

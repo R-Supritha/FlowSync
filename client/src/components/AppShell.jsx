@@ -20,6 +20,7 @@ import StatusBar from './layout/StatusBar'
 import SearchDialog from './search/SearchDialog'
 import TaskDrawer from './TaskDrawer'
 import useChatBadge from '../hooks/useChatBadge'
+import VerifyEmailBanner from './VerifyEmailBanner'
 
 export default function AppShell() {
   useTheme()
@@ -102,6 +103,7 @@ export default function AppShell() {
       <ActivityBar />
       <Sidebar />
       <main className="main">
+        <VerifyEmailBanner />
         <div className="editor-chrome">
           <EditorTabs />
           <Breadcrumbs />

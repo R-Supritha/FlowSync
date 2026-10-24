@@ -58,6 +58,40 @@ export const removeMember = createAsyncThunk(
   },
 )
 
+export const updateWorkspace = createAsyncThunk(
+  'workspaces/update',
+  async ({ workspaceId, name, description }, { rejectWithValue }) => {
+    try {
+      return (await workspaceApi.update(workspaceId, { name, description })).workspace
+    } catch (e) {
+      return rejectWithValue(errorMessage(e, 'Failed to save the workspace settings'))
+    }
+  },
+)
+
+export const changeMemberRole = createAsyncThunk(
+  'workspaces/changeRole',
+  async ({ workspaceId, userId, role }, { rejectWithValue }) => {
+    try {
+      return (await workspaceApi.setRole(workspaceId, userId, role)).workspace
+    } catch (e) {
+      return rejectWithValue(errorMessage(e, 'Failed to change the role'))
+    }
+  },
+)
+
+export const deleteWorkspace = createAsyncThunk(
+  'workspaces/delete',
+  async ({ workspaceId, confirmName }, { rejectWithValue }) => {
+    try {
+      await workspaceApi.remove(workspaceId, confirmName)
+      return workspaceId
+    } catch (e) {
+      return rejectWithValue(errorMessage(e, 'Failed to delete the workspace'))
+    }
+  },
+)
+
 function replaceWorkspace(state, workspace) {
   const i = state.items.findIndex((w) => w._id === workspace._id)
   if (i >= 0) state.items[i] = workspace
@@ -111,6 +145,17 @@ const workspacesSlice = createSlice({
       })
       .addCase(inviteMember.fulfilled, (state, action) => replaceWorkspace(state, action.payload))
       .addCase(removeMember.fulfilled, (state, action) => replaceWorkspace(state, action.payload))
+      .addCase(updateWorkspace.fulfilled, (state, action) => replaceWorkspace(state, action.payload))
+      .addCase(changeMemberRole.fulfilled, (state, action) => replaceWorkspace(state, action.payload))
+      .addCase(deleteWorkspace.fulfilled, (state, action) => {
+        state.items = state.items.filter((w) => w._id !== action.payload)
+        delete state.people[action.payload]
+        if (state.currentId === action.payload) {
+          state.currentId = state.items[0]?._id || null
+          if (state.currentId) localStorage.setItem(CURRENT_KEY, state.currentId)
+          else localStorage.removeItem(CURRENT_KEY)
+        }
+      })
       .addCase(fetchPeople.fulfilled, (state, action) => {
         state.people[action.payload.workspaceId] = action.payload.people
       })

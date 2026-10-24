@@ -45,7 +45,7 @@ export default function Login() {
           {status === 'loading' ? 'Signing in…' : 'Sign in'}
         </button>
         <p className="fs-muted" style={{ marginBottom: 0 }}>
-          <span title="Not built yet">Forgot password? (coming soon)</span>
+          <Link to="/forgot-password">Forgot password?</Link>
         </p>
         <p style={{ marginBottom: 0 }}>
           New here? <Link to="/register">Create an account</Link>

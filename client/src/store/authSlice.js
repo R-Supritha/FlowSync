@@ -59,6 +59,12 @@ const authSlice = createSlice({
     clearAuthError(state) {
       state.error = null
     },
+    // Update some fields of the signed-in user (for example emailVerified once the link was used).
+    setUser(state, action) {
+      if (!state.user) return
+      state.user = { ...state.user, ...action.payload }
+      localStorage.setItem(USER_KEY, JSON.stringify(state.user))
+    },
   },
   extraReducers: (builder) => {
     for (const thunk of [login, register]) {
@@ -80,5 +86,5 @@ const authSlice = createSlice({
   },
 })
 
-export const { logout, clearAuthError } = authSlice.actions
+export const { logout, clearAuthError, setUser } = authSlice.actions
 export default authSlice.reducer

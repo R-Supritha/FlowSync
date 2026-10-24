@@ -5,6 +5,10 @@ const data = (res) => res.data
 export const authApi = {
   login: (body) => api.post('/auth/login', body).then(data),
   register: (body) => api.post('/auth/register', body).then(data),
+  forgot: (email) => api.post('/auth/forgot-password', { email }).then(data),
+  reset: (token, password) => api.post('/auth/reset-password', { token, password }).then(data),
+  verify: (token) => api.post('/auth/verify-email', { token }).then(data),
+  resend: () => api.post('/auth/resend-verification').then(data),
 }
 
 export const workspaceApi = {
@@ -12,6 +16,9 @@ export const workspaceApi = {
   create: (body) => api.post('/workspaces', body).then(data),
   invite: (id, body) => api.post(`/workspaces/${id}/invite`, body).then(data),
   removeMember: (id, userId) => api.delete(`/workspaces/${id}/members/${userId}`).then(data),
+  update: (id, body) => api.patch(`/workspaces/${id}`, body).then(data),
+  setRole: (id, userId, role) => api.patch(`/workspaces/${id}/members/${userId}`, { role }).then(data),
+  remove: (id, confirmName) => api.delete(`/workspaces/${id}`, { data: { confirmName } }).then(data),
   // The only endpoint that returns member names, so it doubles as the people lookup.
   people: (id) => api.get(`/workspaces/${id}/presence`).then(data),
 }
