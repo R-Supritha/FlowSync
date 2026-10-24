@@ -212,3 +212,19 @@ export const aiAssistApi = {
   sprintPlan: (projectId, body) => api.post(`/projects/${projectId}/ai/sprint-plan`, body).then(data),
   applySprint: (projectId, body) => api.post(`/projects/${projectId}/sprint/apply`, body).then(data),
 }
+
+// FR26 channels, FR27 live messaging.
+export const chatApi = {
+  channels: (workspaceId) => api.get(`/workspaces/${workspaceId}/channels`).then(data),
+  createChannel: (workspaceId, body) => api.post(`/workspaces/${workspaceId}/channels`, body).then(data),
+  messages: (channelId, params) => api.get(`/channels/${channelId}/messages`, { params }).then(data),
+  send: (channelId, text) => api.post(`/channels/${channelId}/messages`, { text }).then(data),
+  edit: (messageId, text) => api.patch(`/messages/${messageId}`, { text }).then(data),
+  remove: (messageId) => api.delete(`/messages/${messageId}`).then(data),
+  markRead: (channelId) => api.post(`/channels/${channelId}/read`).then(data),
+  // Server-Sent Events, read with fetch() so the JWT stays in the Authorization header.
+  streamUrl: (workspaceId) => {
+    const base = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+    return `${base}/workspaces/${workspaceId}/chat/stream`
+  },
+}

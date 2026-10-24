@@ -29,6 +29,7 @@ const ocrRoutes = require('./routes/ocrRoutes');
 const aiProjectRoutes = require('./routes/aiProjectRoutes');
 const aiAssistRoutes = require('./routes/aiAssistRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
 
@@ -39,6 +40,7 @@ app.use('/api', activityRoutes);
 app.use('/api', contributionRoutes);
 app.use('/api', presenceRoutes);
 app.use('/api', analyticsRoutes);
+app.use('/api', chatRoutes);
 
 // 100 requests per 15 minutes per computer by default. The app also checks notifications, presence and
 // health in the background, so set RATE_LIMIT=1000 in server/.env while developing.

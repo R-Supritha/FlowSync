@@ -19,10 +19,12 @@ import BottomPanel from './layout/BottomPanel'
 import StatusBar from './layout/StatusBar'
 import SearchDialog from './search/SearchDialog'
 import TaskDrawer from './TaskDrawer'
+import useChatBadge from '../hooks/useChatBadge'
 
 export default function AppShell() {
   useTheme()
   useHeartbeat()
+  useChatBadge()
   const dispatch = useDispatch()
   const location = useLocation()
   const status = useSelector((s) => s.workspaces.status)

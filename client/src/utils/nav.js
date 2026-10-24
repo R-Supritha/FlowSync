@@ -20,6 +20,7 @@ const PAGES = {
   '/teams': { label: 'Teams' },
   '/members': { label: 'Members' },
   '/calendar': { label: 'Calendar' },
+  '/chat': { label: 'Chat' },
   '/notifications': { label: 'Notifications' },
   '/analytics': { label: 'Analytics' },
   '/github': { label: 'GitHub' },

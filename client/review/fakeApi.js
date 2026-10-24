@@ -3,7 +3,7 @@ import { ids, token } from './token'
 export { ids, token }
 
 // A pretend FlowSync API that answers with the exact response shapes the real server returned in our tests.
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -34,6 +34,13 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     github: { linked: githubLinked },
     settings: { theme: 'system', fontSize: 14, language: 'en', notifications: { taskAssigned: true, taskUpdates: true, comments: true, mentions: true, dueDates: true } },
     generated: {},
+    channels: [
+      { _id: 'ch-general', name: 'general', description: 'Everyone in the workspace', kind: 'general', project: null, unread: 2, lastMessage: null },
+      { _id: 'ch-proj', name: 'demo-project', description: 'Chat for Demo Project', kind: 'project', project: ids.project, unread: 0, lastMessage: null },
+    ],
+    messages: [],
+    seq: 0,
+
     privacy: { statusVisibility: 'team', contributionVisibility: 'private', inferWorkMode: false },
     profile: { ...me, bio: 'Student', skills: ['React'], avatarUrl: '', githubUsername: 'sunithaa42' },
     activities: [
@@ -319,6 +326,61 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     if (mm && method === 'post') {
       if (role !== 'Admin' && role !== 'Manager') return fail(err(403, 'Only Admin or Manager can start a sprint'))
       return ok({ success: true, target: 'To Do', moved: body.taskIds.map((id) => ({ _id: id, title: 'Moved task' })), skipped: [] })
+    }
+
+    // ---- FR26 channels, FR27 live messaging ----
+    const chatMsg = (channel, author, text, over = {}) => { state.seq += 1; return { _id: `m${String(state.seq).padStart(4, '0')}`, channel, author: { _id: author._id, name: author.name }, text, deleted: false, editedAt: null, createdAt: iso(-0.01 * (100 - state.seq)), ...over } }
+    if (!state.chatSeeded) {
+      state.chatSeeded = true
+      if (manyMessages) for (let i = 1; i <= 60; i += 1) state.messages.push(chatMsg('ch-general', i % 2 ? other : me, `old message ${i}`))
+      else {
+        state.messages.push(chatMsg('ch-general', other, 'Welcome everyone'))
+        state.messages.push(chatMsg('ch-general', me, 'Thanks!'))
+        state.messages.push(chatMsg('ch-general', other, 'Standup at 10'))
+      }
+    }
+    const isManagerRole = role === 'Admin' || role === 'Manager'
+    if (url === `/workspaces/${W}/channels` && method === 'get') return ok({ success: true, channels: JSON.parse(JSON.stringify(state.channels)), canPost: role !== 'Viewer', canManage: isManagerRole })
+    if (url === `/workspaces/${W}/channels` && method === 'post') {
+      if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can create channels'))
+      const name = String(body.name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/^#/, '')
+      if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(name)) return fail(err(400, 'Channel names use lowercase letters, numbers and dashes, start with a letter or number, and are at most 40 characters'))
+      if (state.channels.some((c) => c.name === name)) return fail(err(409, 'A channel with that name already exists'))
+      const channel = { _id: `ch-${name}`, name, description: body.description || '', kind: 'custom', project: null, unread: 0, lastMessage: null }
+      state.channels.push(channel)
+      return ok({ success: true, channel }, 201)
+    }
+    mm = m(/^\/channels\/([\w-]+)\/messages$/)
+    if (mm && method === 'get') {
+      const all = state.messages.filter((x) => x.channel === mm[1])
+      const limit = Number(params.limit) || 50
+      let list
+      if (params.after) list = all.filter((x) => x._id > params.after).slice(0, limit)
+      else { const older = params.before ? all.filter((x) => x._id < params.before) : all; list = older.slice(-limit) }
+      const hasMore = params.after ? false : (params.before ? all.filter((x) => x._id < params.before).length : all.length) > limit
+      return ok({ success: true, messages: JSON.parse(JSON.stringify(list)), hasMore })
+    }
+    if (mm && method === 'post') {
+      if (role === 'Viewer') return fail(err(403, 'Viewers can read messages but not post'))
+      if (!String(body.text || '').trim()) return fail(err(400, 'A message cannot be empty'))
+      const msg = chatMsg(mm[1], me, String(body.text).trim(), { createdAt: iso(0) })
+      state.messages.push(msg)
+      return ok({ success: true, message: msg }, 201)
+    }
+    mm = m(/^\/channels\/([\w-]+)\/read$/)
+    if (mm && method === 'post') { const c = state.channels.find((x) => x._id === mm[1]); if (c) c.unread = 0; return ok({ success: true }) }
+    mm = m(/^\/messages\/([\w-]+)$/)
+    if (mm && method === 'patch') {
+      const msg = state.messages.find((x) => x._id === mm[1])
+      if (!msg || msg.author._id !== ids.me) return fail(err(403, 'You can only edit your own messages'))
+      msg.text = String(body.text).trim(); msg.editedAt = iso(0)
+      return ok({ success: true, message: JSON.parse(JSON.stringify(msg)) })
+    }
+    if (mm && method === 'delete') {
+      const msg = state.messages.find((x) => x._id === mm[1])
+      if (!msg || (msg.author._id !== ids.me && !isManagerRole)) return fail(err(403, 'You can only delete your own messages'))
+      msg.deleted = true; msg.text = ''
+      return ok({ success: true })
     }
 
     return fail(err(404, `unmocked ${method} ${url}`))
