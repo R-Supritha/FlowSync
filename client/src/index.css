@@ -1752,6 +1752,16 @@ code {
   font-size: 0.8em;
 }
 
+/* With the side bars open the main area is much narrower than the window, so the two dashboard cards stack earlier. */
+@media (max-width: 1250px) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+  .dash-grid > .span-2 {
+    grid-column: span 1;
+  }
+}
+
 @media (max-width: 900px) {
   .dash-grid,
   .profile-grid {

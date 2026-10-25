@@ -111,6 +111,8 @@ function Stat({ icon: Icon, label, value, tone = '', to = '' }) {
 function TaskList({ tasks, onOpen }) {
   if (!tasks.length) return null
   return (
+    // The table scrolls sideways inside its card when the card is narrower than the table, instead of running over the next card.
+    <div style={{ overflowX: 'auto' }}>
     <table className="fs-table">
       <thead>
         <tr><th>Ref</th><th>Title</th><th>Project</th><th>Status</th><th>Priority</th><th>Deadline</th></tr>
@@ -130,5 +132,6 @@ function TaskList({ tasks, onOpen }) {
         ))}
       </tbody>
     </table>
+    </div>
   )
 }
