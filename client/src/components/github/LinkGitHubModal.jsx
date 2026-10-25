@@ -48,7 +48,7 @@ export default function LinkGitHubModal({ projectId, onClose, onLinked }) {
         <Field
           label="Fine-grained access token"
           htmlFor="gh-token"
-          hint="Stored encrypted on the server and never shown again. Needs Contents:Read. Rotate by re-linking."
+          hint="Stored encrypted on the server and never shown again. Needs read access to Contents and Pull requests; add Issues (read) to also follow issues. Rotate by re-linking."
         >
           <input
             id="gh-token"

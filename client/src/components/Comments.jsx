@@ -1,14 +1,19 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useDispatch } from 'react-redux'
-import { commentApi } from '../api/endpoints'
+import { commentApi, fileApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import useAsync from '../hooks/useAsync'
+import useDownload from '../hooks/useDownload'
 import { pushToast } from '../store/uiSlice'
 import { isManager } from '../utils/roles'
-import { relativeTime } from '../utils/format'
+import { formatBytes, relativeTime } from '../utils/format'
 import { ConfirmDialog, Spinner } from './ui'
 
 const EMOJIS = ['👍', '❤️', '🎉', '👀']
+
+const MAX_FILES = 5 // per comment
+const MAX_BYTES = 20 * 1024 * 1024
+const ACCEPT = '.pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.zip'
 
 const authorId = (c) => String(c.author?._id || c.author)
 
@@ -22,9 +27,12 @@ function mentionMatches(text, people) {
     .slice(0, 5)
 }
 
-function Composer({ people, placeholder, submitLabel, initial = '', onSubmit, onCancel }) {
+function Composer({ people, placeholder, submitLabel, initial = '', onSubmit, onCancel, attachable = false }) {
   const [text, setText] = useState(initial)
+  const [files, setFiles] = useState([])
+  const [fileError, setFileError] = useState('')
   const [busy, setBusy] = useState(false)
+  const picker = useRef(null)
   const suggestions = mentionMatches(text, people)
 
   const pick = (p) => setText((t) => t.replace(/@(\w*)$/, `@${p.name.split(/\s+/)[0]} `))
@@ -33,9 +41,24 @@ function Composer({ people, placeholder, submitLabel, initial = '', onSubmit, on
     e.preventDefault()
     if (!text.trim()) return
     setBusy(true)
-    const ok = await onSubmit(text.trim())
+    const ok = await onSubmit(text.trim(), files)
     setBusy(false)
-    if (ok) setText('')
+    if (ok) {
+      setText('')
+      setFiles([])
+    }
+  }
+
+  // Checks the chosen files before anything is sent: at most 5 per comment, each at most 20 MB.
+  function pickFiles(e) {
+    const chosen = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (chosen.length === 0) return
+    const tooBig = chosen.find((f) => f.size > MAX_BYTES)
+    if (tooBig) return setFileError(`"${tooBig.name}" is larger than 20 MB.`)
+    if (files.length + chosen.length > MAX_FILES) return setFileError(`A comment can have at most ${MAX_FILES} attachments.`)
+    setFileError('')
+    setFiles((current) => [...current, ...chosen])
   }
 
   return (
@@ -57,7 +80,24 @@ function Composer({ people, placeholder, submitLabel, initial = '', onSubmit, on
           ))}
         </div>
       )}
+      {files.length > 0 && (
+        <ul aria-label="Files to attach" style={{ listStyle: 'none', margin: '0 0 6px', padding: 0, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {files.map((f, i) => (
+            <li key={`${f.name}-${i}`} className="fs-row" style={{ gap: 4, border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px' }}>
+              <span>{f.name} <span className="fs-muted">({formatBytes(f.size)})</span></span>
+              <button type="button" className="fs-btn small ghost" aria-label={`Do not attach ${f.name}`} onClick={() => setFiles((current) => current.filter((_, at) => at !== i))}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {fileError && <p className="fs-error" role="alert" style={{ margin: '0 0 6px' }}>{fileError}</p>}
       <div className="fs-row">
+        {attachable && (
+          <>
+            <input ref={picker} type="file" multiple accept={ACCEPT} aria-label="Choose files to attach" hidden onChange={pickFiles} />
+            <button type="button" className="fs-btn small" aria-label="Attach files" disabled={busy} onClick={() => picker.current && picker.current.click()}>Attach</button>
+          </>
+        )}
         <button type="submit" className="fs-btn small primary" disabled={busy || !text.trim()}>{submitLabel}</button>
         {onCancel && <button type="button" className="fs-btn small" onClick={onCancel}>Cancel</button>}
       </div>
@@ -66,7 +106,8 @@ function Composer({ people, placeholder, submitLabel, initial = '', onSubmit, on
 }
 
 function Comment({ comment, replies, depth, ctx }) {
-  const { me, role, people, canWrite, act } = ctx
+  const { me, role, people, canWrite, act, post } = ctx
+  const download = useDownload()
   const [mode, setMode] = useState(null) // 'reply' | 'edit'
   const [confirm, setConfirm] = useState(false)
   const mine = authorId(comment) === String(me)
@@ -96,6 +137,24 @@ function Comment({ comment, replies, depth, ctx }) {
         />
       ) : (
         <p style={{ margin: '2px 0 4px', whiteSpace: 'pre-wrap' }}>{comment.text}</p>
+      )}
+
+      {(comment.files || []).length > 0 && (
+        <ul aria-label="Attachments" style={{ listStyle: 'none', margin: '2px 0 4px', padding: 0, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {comment.files.map((f) => {
+            const mineFile = String(f.uploadedBy?._id || f.uploadedBy) === String(me)
+            return (
+              <li key={f._id} className="fs-row" style={{ gap: 2 }}>
+                <button type="button" className="fs-btn small" aria-label={`Download ${f.originalName}`} onClick={() => download(f)}>
+                  {f.originalName} <span className="fs-muted">({formatBytes(f.size)})</span>
+                </button>
+                {((mineFile && canWrite) || isManager(role)) && (
+                  <button type="button" className="fs-btn small ghost" aria-label={`Remove ${f.originalName}`} onClick={() => act(() => fileApi.remove(f._id), 'Attachment removed')}>×</button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
       )}
 
       <div className="fs-row" style={{ flexWrap: 'wrap', gap: 4 }}>
@@ -128,9 +187,10 @@ function Comment({ comment, replies, depth, ctx }) {
           people={people}
           placeholder={`Reply to ${name}`}
           submitLabel="Reply"
+          attachable
           onCancel={() => setMode(null)}
-          onSubmit={async (text) => {
-            const ok = await act(() => commentApi.create(comment.task || ctx.taskId, { text, parentComment: comment._id }))
+          onSubmit={async (text, files) => {
+            const ok = await post({ text, parentComment: comment._id }, files)
             if (ok) setMode(null)
             return ok
           }}
@@ -173,10 +233,32 @@ export default function Comments({ taskId, people, role, me, canWrite }) {
     }
   }
 
+  // Posts a comment, then attaches each chosen file to it. A file that fails does not undo the comment.
+  async function post(body, files = []) {
+    try {
+      const res = await commentApi.create(taskId, body)
+      const failed = []
+      for (const file of files) {
+        try {
+          await fileApi.uploadToComment(res.comment._id, file)
+        } catch (e) {
+          failed.push(`${file.name} (${errorMessage(e, 'upload failed')})`)
+        }
+      }
+      if (failed.length) dispatch(pushToast(`Comment posted, but these attachments failed: ${failed.join('; ')}`, 'error'))
+      else dispatch(pushToast(files.length ? 'Comment posted with attachments' : body.parentComment ? 'Reply posted' : 'Comment posted', 'success'))
+      reload()
+      return true
+    } catch (e) {
+      dispatch(pushToast(errorMessage(e), 'error'))
+      return false
+    }
+  }
+
   const comments = data?.comments || []
   const top = comments.filter((c) => !c.parentComment)
   const repliesOf = (id) => comments.filter((c) => String(c.parentComment) === String(id))
-  const ctx = { me, role, people, canWrite, act, taskId }
+  const ctx = { me, role, people, canWrite, act, post, taskId }
 
   return (
     <section aria-label="Comments" style={{ marginTop: 16 }}>
@@ -192,7 +274,8 @@ export default function Comments({ taskId, people, role, me, canWrite }) {
           people={people}
           placeholder="Add a comment (type @ to mention someone)"
           submitLabel="Comment"
-          onSubmit={(text) => act(() => commentApi.create(taskId, { text }), 'Comment posted')}
+          attachable
+          onSubmit={(text, files) => post({ text }, files)}
         />
       ) : (
         <p className="readonly-note">Viewers can read comments but not write them.</p>

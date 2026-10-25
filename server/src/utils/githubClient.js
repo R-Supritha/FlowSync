@@ -92,4 +92,24 @@ function listPulls(token, owner, name) {
   });
 }
 
-module.exports = { GithubError, getRepo, listCommits, listPulls, getCommit, getPull, listPullFiles };
+// FR13. Issues updated since `since`. GitHub's issue list also contains pull requests; those are dropped here.
+async function listIssues(token, owner, name, since) {
+  const items = await github(`${repoPath(owner, name)}/issues`, token, {
+    state: 'all',
+    since: since.toISOString(),
+    sort: 'updated',
+    direction: 'desc',
+    per_page: 30,
+  });
+  return (items || []).filter((i) => i && !i.pull_request);
+}
+
+function listReleases(token, owner, name) {
+  return github(`${repoPath(owner, name)}/releases`, token, { per_page: 10 });
+}
+
+function listBranches(token, owner, name) {
+  return github(`${repoPath(owner, name)}/branches`, token, { per_page: 100 });
+}
+
+module.exports = { GithubError, getRepo, listCommits, listPulls, getCommit, getPull, listPullFiles, listIssues, listReleases, listBranches };

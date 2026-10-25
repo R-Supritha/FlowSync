@@ -18,6 +18,9 @@ const CATEGORY_BY_TYPE = {
   task_assigned: 'planning',
   task_deleted: 'planning',
   file_uploaded: 'planning',
+  issue_opened: 'planning',
+  issue_closed: 'completed',
+  release_published: 'completed',
 };
 
 // [singular, plural] wording for the "5 commits, 2 tasks completed" summaries.
@@ -34,6 +37,9 @@ const LABELS = {
   task_assigned: ['task assigned', 'tasks assigned'],
   file_uploaded: ['file uploaded', 'files uploaded'],
   task_deleted: ['task deleted', 'tasks deleted'],
+  issue_opened: ['issue opened', 'issues opened'],
+  issue_closed: ['issue closed', 'issues closed'],
+  release_published: ['release', 'releases'],
 };
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

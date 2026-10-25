@@ -5,6 +5,7 @@ const Task = require('../models/Task');
 const GithubLink = require('../models/GithubLink');
 const GithubEvent = require('../models/GithubEvent');
 const { notifyPullRequest } = require('../utils/githubNotify');
+const { collectExtras } = require('../utils/githubExtras');
 const { recordActivity, makeTaskIndex, applyEventToTasks, applyAuthorFallback, refFor, extractRefs } = require('../utils/githubTaskLinks');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { encrypt, decrypt } = require('../utils/tokenCrypto');
@@ -37,6 +38,8 @@ function publicLink(link) {
     linkedBy: link.linkedBy,
     lastSyncedAt: link.lastSyncedAt,
     lastSyncSummary: link.lastSyncSummary,
+    branchCount: link.branchesBaselined ? (link.knownBranches || []).length : null,
+    recentNewBranches: (link.recentNewBranches || []).map((b) => ({ name: b.name, seenAt: b.seenAt })),
     linkedAt: link.createdAt,
   };
 }
@@ -180,7 +183,15 @@ async function syncRepository(req, res) {
       if (error instanceof GithubError) return fail(res, error.status, error.message);
       throw error;
     }
-    const events = checked.events;
+    // FR13: issues, releases and new branches. Optional: if the token cannot read one, the sync goes on and says so.
+    let extras;
+    try {
+      extras = await collectExtras({ token, owner, name, repo: link.repoFullName, since, link });
+    } catch (error) {
+      if (error instanceof GithubError) return fail(res, error.status, error.message);
+      throw error;
+    }
+    const events = [...checked.events, ...extras.events].sort((a, b) => a.date - b.date);
     for (const key of checked.markers) {
       try {
         await GithubEvent.create({ project: project._id, key });
@@ -203,7 +214,7 @@ async function syncRepository(req, res) {
       : [];
     const taskIndex = makeTaskIndex(activeTasks);
 
-    const recorded = { commits: 0, prsOpened: 0, prsMerged: 0 };
+    const recorded = { commits: 0, prsOpened: 0, prsMerged: 0, issuesOpened: 0, issuesClosed: 0, releases: 0, newBranches: extras.newBranches.length };
     const unmatched = new Set();
     const tasksMoved = [];
     const linkNotes = new Set(checked.notes);
@@ -266,10 +277,20 @@ async function syncRepository(req, res) {
       if (ev.type === 'commit_pushed') recorded.commits += 1;
       else if (ev.type === 'pr_opened') recorded.prsOpened += 1;
       else if (ev.type === 'pr_merged') recorded.prsMerged += 1;
+      else if (ev.type === 'issue_opened') recorded.issuesOpened += 1;
+      else if (ev.type === 'issue_closed') recorded.issuesClosed += 1;
+      else if (ev.type === 'release_published') recorded.releases += 1;
     }
 
     link.lastSyncedAt = now;
     link.lastSyncSummary = recorded;
+    if (extras.branchNames) {
+      link.knownBranches = extras.branchNames;
+      link.branchesBaselined = true;
+      if (extras.newBranches.length) {
+        link.recentNewBranches = [...extras.newBranches.map((n) => ({ name: n, seenAt: now })), ...(link.recentNewBranches || [])].slice(0, 10);
+      }
+    }
     await link.save();
 
     res.json({
@@ -277,6 +298,10 @@ async function syncRepository(req, res) {
       repo: link.repoFullName,
       since,
       fetched: { commits: commits.length, pullRequests: pulls.length },
+      newBranches: extras.newBranches,
+      branchCount: extras.branchNames ? extras.branchNames.length : null,
+      unavailable: extras.unavailable,
+      notes: extras.notes,
       recorded,
       skippedAlreadyRecorded: duplicates,
       skippedNoChanges: checked.skipped,

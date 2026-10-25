@@ -96,4 +96,57 @@ function buildEvents({ repo, commits, pulls, since }) {
   return events;
 }
 
-module.exports = { parseRepo, buildEvents };
+const validDate = (value) => {
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+// FR13: issues (opened, closed) and published releases as activity events. These are NOT run through the
+// empty-change filter: that one looks up pull requests by number, and an issue number is not a pull request number.
+function buildExtraEvents({ repo, issues, releases, since }) {
+  const events = [];
+
+  for (const i of issues || []) {
+    if (!i || typeof i.number !== 'number' || i.pull_request) continue;
+    const login = (i.user && i.user.login) || null;
+    const meta = { source: 'github', repo, number: i.number, url: i.html_url, githubLogin: login, title: i.title };
+    const opened = validDate(i.created_at);
+    if (opened && opened >= since) {
+      events.push({ key: `${repo}:issue-opened:${i.number}`, type: 'issue_opened', login, date: opened, message: `opened issue #${i.number} "${firstLine(i.title)}"`, text: '', meta });
+    }
+    const closed = i.closed_at ? validDate(i.closed_at) : null;
+    if (closed && closed >= since) {
+      const closer = (i.closed_by && i.closed_by.login) || login;
+      events.push({ key: `${repo}:issue-closed:${i.number}`, type: 'issue_closed', login: closer, date: closed, message: `closed issue #${i.number} "${firstLine(i.title)}"`, text: '', meta: { ...meta, githubLogin: closer } });
+    }
+  }
+
+  for (const r of releases || []) {
+    if (!r || r.draft || !r.published_at) continue; // a draft is not published yet
+    const published = validDate(r.published_at);
+    if (!published || published < since) continue;
+    const login = (r.author && r.author.login) || null;
+    const label = r.name || r.tag_name || 'release';
+    const tag = r.tag_name && r.name && r.name !== r.tag_name ? ` (${r.tag_name})` : '';
+    events.push({
+      key: `${repo}:release:${r.id}`,
+      type: 'release_published',
+      login,
+      date: published,
+      message: `published release "${firstLine(label)}"${tag}`,
+      text: '',
+      meta: { source: 'github', repo, tag: r.tag_name, url: r.html_url, githubLogin: login },
+    });
+  }
+
+  return events.sort((a, b) => a.date - b.date);
+}
+
+// Which of the branches are new since the last sync. The first sync only remembers the existing ones.
+function findNewBranches({ branches, known, baselined }) {
+  const names = [...new Set((branches || []).map((b) => b && b.name).filter((n) => typeof n === 'string' && n))];
+  const fresh = baselined ? names.filter((n) => !(known || []).includes(n)) : [];
+  return { names, fresh };
+}
+
+module.exports = { parseRepo, buildEvents, buildExtraEvents, findNewBranches };

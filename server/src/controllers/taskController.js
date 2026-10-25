@@ -1,3 +1,4 @@
+const { removeTaskData } = require('../utils/fileCleanup');
 const mongoose = require('mongoose');
 const Project = require('../models/Project');
 const Task = require('../models/Task');
@@ -368,6 +369,7 @@ async function deleteTask(req, res) {
       return fail(res, 403, 'Only Admin, Manager, or the task reporter can delete a task');
     }
 
+    await removeTaskData(task._id); // its comments and every file attached to the task or its comments
     await task.deleteOne();
 
     await logActivity({

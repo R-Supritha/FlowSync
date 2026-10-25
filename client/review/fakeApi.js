@@ -14,7 +14,7 @@ const BADGES_RESPONSE = {
   ],
 }
 
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false, withCommentFiles = false, githubExtras = 'none' } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -59,6 +59,12 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       { _id: 'a2', type: 'commit_pushed', category: 'completed', message: 'committed "Add search (FR20)" (3f51928)', actor: me, project: { _id: ids.project, name: 'Demo Project' }, createdAt: iso(-0.2) },
       { _id: 'a3', type: 'comment_added', category: 'collaboration', message: 'commented on "Build login page"', actor: other, project: { _id: ids.project, name: 'Demo Project' }, createdAt: iso(-0.3) },
     ],
+  }
+  if (withCommentFiles) {
+    state.files.push(
+      { _id: 'cf1', originalName: 'notes.pdf', mimetype: 'application/pdf', size: 2048, uploadedBy: ids.me, createdAt: iso(-1), comment: 'c1' },
+      { _id: 'cf2', originalName: 'mockup.png', mimetype: 'image/png', size: 5 * 1024 * 1024, uploadedBy: ids.other, createdAt: iso(-1), comment: 'c1' },
+    )
   }
   if (hasPicture) state.profile.avatarUrl = '/avatars/me-0123456789abcdef.png'
   if (moreNotifications) {
@@ -132,7 +138,7 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
         t.assignee = body.assignee === ids.other ? other : body.assignee ? me : null
         return ok({ success: true, task: t })
       }
-      if (sub === '/comments' && method === 'get') return ok({ success: true, comments: state.comments.filter((c) => c.task === mm[1]) })
+      if (sub === '/comments' && method === 'get') return ok({ success: true, comments: state.comments.filter((c) => c.task === mm[1]).map((c) => ({ ...c, files: state.files.filter((f) => f.comment === c._id) })) })
       if (sub === '/comments' && method === 'post') {
         if (viewerBlocked) return fail(err(403, 'Viewers have read-only access'))
         const c = { _id: `c${state.comments.length + 1}`, task: mm[1], author: me, text: body.text, parentComment: body.parentComment || null, reactions: [], createdAt: iso() }
@@ -143,6 +149,16 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
         const f = { _id: `f${state.files.length + 1}`, originalName: body.file.name, mimetype: body.file.type, size: body.file.size, uploadedBy: me, createdAt: iso(), task: mm[1], project: P }
         state.files.push(f); return ok({ success: true, file: f }, 201)
       }
+    }
+    mm = m(/^\/comments\/(\w+)\/files$/)
+    if (mm && method === 'post') {
+      if (viewerBlocked) return fail(err(403, 'Viewers cannot upload files'))
+      const c = state.comments.find((x) => x._id === mm[1])
+      if (!c) return fail(err(404, 'Comment not found'))
+      if (state.files.filter((f) => f.comment === c._id).length >= 5) return fail(err(400, 'A comment can have at most 5 attachments'))
+      if (body.file.name === 'bad.zip') return fail(err(400, 'This file type is not allowed'))
+      const f = { _id: `cf${state.files.length + 1}`, originalName: body.file.name, mimetype: body.file.type, size: body.file.size, uploadedBy: ids.me, createdAt: iso(), comment: c._id }
+      state.files.push(f); return ok({ success: true, file: f }, 201)
     }
     mm = m(/^\/comments\/(\w+)(\/reactions)?$/)
     if (mm) {
@@ -259,7 +275,7 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
 
     // github
     if (url === `/projects/${P}/github`) {
-      if (method === 'get') return ok(state.github.linked ? { success: true, linked: true, link: { repo: 'sunithaa42/FlowSync', defaultBranch: 'main', linkedBy: me, lastSyncedAt: iso(-0.1), lastSyncSummary: { commits: 4, prsOpened: 1, prsMerged: 0 } } } : { success: true, linked: false })
+      if (method === 'get') return ok(state.github.linked ? { success: true, linked: true, link: { repo: 'sunithaa42/FlowSync', defaultBranch: 'main', linkedBy: me, lastSyncedAt: iso(-0.1), lastSyncSummary: githubExtras === 'some' ? { commits: 4, prsOpened: 1, prsMerged: 0, issuesOpened: 2, issuesClosed: 1, releases: 1, newBranches: 1 } : { commits: 4, prsOpened: 1, prsMerged: 0 }, ...(githubExtras === 'none' ? {} : { branchCount: 4, recentNewBranches: githubExtras === 'some' ? [{ name: 'feature/search', seenAt: iso(-0.2) }] : [] }) } } : { success: true, linked: false })
       if (method === 'post') {
         if (role === 'Viewer' || role === 'Member') return fail(err(403, 'Only Admin or Manager can link a repository'))
         if (body.token === 'github_pat_bad') return fail(err(400, 'GitHub rejected the token (wrong, expired or revoked)'))
@@ -269,7 +285,8 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     }
     if (url === `/projects/${P}/github/sync`) {
       if (role === 'Viewer') return fail(err(403, 'Viewers cannot sync a repository'))
-      return ok({ success: true, repo: 'sunithaa42/FlowSync', recorded: { commits: 2, prsOpened: 1, prsMerged: 0 }, skippedAlreadyRecorded: 3,
+      return ok({ success: true, repo: 'sunithaa42/FlowSync', recorded: githubExtras === 'some' ? { commits: 2, prsOpened: 1, prsMerged: 0, issuesOpened: 2, issuesClosed: 1, releases: 1, newBranches: 1 } : { commits: 2, prsOpened: 1, prsMerged: 0 }, skippedAlreadyRecorded: 3,
+        unavailable: githubExtras === 'denied' ? ['issues'] : [], notes: githubExtras === 'denied' ? ['Issues were not read. To include them, give the GitHub token read access to Issues.'] : [], newBranches: githubExtras === 'some' ? ['feature/search'] : [],
         skippedNoChanges: githubIgnored ? { commits: 2, pullRequests: 0, alreadyIgnored: 0 } : { commits: 0, pullRequests: 0, alreadyIgnored: 0 },
         tasksMoved: [{ ref: 'FS-0140ad', title: 'Build login page', from: 'Backlog', to: 'In Progress', because: 'commit 03914f7' }],
         taskLinkNotes: githubIgnored ? ['FS-0140ad: commit bbb2222 changes no files, so it did not move the task'] : ['FS-ffffff matches no active task in this project'], unmatchedGithubUsers: ['stranger'], lastSyncedAt: iso() })

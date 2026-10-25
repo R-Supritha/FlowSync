@@ -15,6 +15,10 @@ const ACTIVITY_TYPES = [
   'pr_opened',
   'pr_merged',
   'review_submitted',
+  // FR13: issues and releases read from GitHub
+  'issue_opened',
+  'issue_closed',
+  'release_published',
 ];
 
 const ACTIVITY_CATEGORIES = ['completed', 'collaboration', 'planning'];
