@@ -159,7 +159,7 @@ async function getWorkspacePresence(req, res) {
 
     const memberIds = workspace.members.map((m) => m.user);
     const [users, presences, latest, canSee] = await Promise.all([
-      User.find({ _id: { $in: memberIds } }).select('name email privacy').lean(),
+      User.find({ _id: { $in: memberIds } }).select('name email avatarUrl privacy').lean(),
       Presence.find({ user: { $in: memberIds } }).lean(),
       latestEvents(memberIds, [workspace._id]),
       makeViewerGate(req.user.id, [workspace]),
@@ -172,7 +172,7 @@ async function getWorkspacePresence(req, res) {
 
     const members = users.map((u) => {
       const privacy = readPrivacy(u);
-      const base = { user: { _id: u._id, name: u.name, email: u.email } };
+      const base = { user: { _id: u._id, name: u.name, email: u.email, avatarUrl: u.avatarUrl || '' } };
       if (!canSee(u._id, privacy.statusVisibility)) return { ...base, hidden: true };
 
       const presence = presenceByUser.get(String(u._id));

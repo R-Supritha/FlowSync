@@ -10,6 +10,13 @@ const userSchema = new mongoose.Schema(
       enum: ['Admin', 'Manager', 'Member', 'Viewer'],
       default: 'Member',
     },
+    // Email verification and password reset (FR1). Only hashes of the one-time tokens are stored.
+    // "emailVerified" is left unset on accounts created before verification existed, and those count as verified.
+    emailVerified: { type: Boolean },
+    emailVerifyTokenHash: { type: String },
+    emailVerifyExpires: { type: Date },
+    resetTokenHash: { type: String },
+    resetTokenExpires: { type: Date },
     bio: { type: String, trim: true, maxlength: 500, default: '' },
     skills: { type: [String], default: [] },
     avatarUrl: { type: String, trim: true, default: '' },

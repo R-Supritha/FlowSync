@@ -4,10 +4,13 @@ const User = require('../models/User');
 const Task = require('../models/Task');
 const GithubLink = require('../models/GithubLink');
 const GithubEvent = require('../models/GithubEvent');
-const { recordActivity, makeTaskIndex, applyEventToTasks, refFor } = require('../utils/githubTaskLinks');
+const { notifyPullRequest } = require('../utils/githubNotify');
+const { collectExtras } = require('../utils/githubExtras');
+const { recordActivity, makeTaskIndex, applyEventToTasks, applyAuthorFallback, refFor, extractRefs } = require('../utils/githubTaskLinks');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { encrypt, decrypt } = require('../utils/tokenCrypto');
-const { GithubError, getRepo, listCommits, listPulls } = require('../utils/githubClient');
+const { GithubError, getRepo, listCommits, listPulls, getCommit, getPull, listPullFiles } = require('../utils/githubClient');
+const { filterRealEvents, markerKey } = require('../utils/githubChanges');
 const { parseRepo, buildEvents } = require('../utils/githubEvents');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -35,6 +38,8 @@ function publicLink(link) {
     linkedBy: link.linkedBy,
     lastSyncedAt: link.lastSyncedAt,
     lastSyncSummary: link.lastSyncSummary,
+    branchCount: link.branchesBaselined ? (link.knownBranches || []).length : null,
+    recentNewBranches: (link.recentNewBranches || []).map((b) => ({ name: b.name, seenAt: b.seenAt })),
     linkedAt: link.createdAt,
   };
 }
@@ -152,7 +157,48 @@ async function syncRepository(req, res) {
       throw error;
     }
 
-    const events = buildEvents({ repo: link.repoFullName, commits, pulls, since });
+    const allEvents = buildEvents({ repo: link.repoFullName, commits, pulls, since });
+
+    // Empty commits and empty pull requests do not count as progress: look at what each NEW
+    // commit / pull request really changed, and leave the empty ones out (see utils/githubChanges.js).
+    const knownKeys = new Set();
+    if (allEvents.length) {
+      const rows = await GithubEvent.find({
+        project: project._id,
+        key: { $in: allEvents.flatMap((ev) => [ev.key, markerKey(ev)]) },
+      }).select('key').lean();
+      rows.forEach((r) => knownKeys.add(r.key));
+    }
+    let checked;
+    try {
+      checked = await filterRealEvents({
+        events: allEvents,
+        knownKeys,
+        extractRefs,
+        getCommit: (sha) => getCommit(token, owner, name, sha),
+        getPull: (number) => getPull(token, owner, name, number),
+        getPullFiles: (number) => listPullFiles(token, owner, name, number),
+      });
+    } catch (error) {
+      if (error instanceof GithubError) return fail(res, error.status, error.message);
+      throw error;
+    }
+    // FR13: issues, releases and new branches. Optional: if the token cannot read one, the sync goes on and says so.
+    let extras;
+    try {
+      extras = await collectExtras({ token, owner, name, repo: link.repoFullName, since, link });
+    } catch (error) {
+      if (error instanceof GithubError) return fail(res, error.status, error.message);
+      throw error;
+    }
+    const events = [...checked.events, ...extras.events].sort((a, b) => a.date - b.date);
+    for (const key of checked.markers) {
+      try {
+        await GithubEvent.create({ project: project._id, key });
+      } catch (error) {
+        if (!(error && error.code === 11000)) throw error;
+      }
+    }
 
     // Match GitHub usernames to FlowSync users through the githubUsername on their profile.
     const workspace = await Workspace.findById(project.workspace).select('members').lean();
@@ -164,14 +210,14 @@ async function syncRepository(req, res) {
 
     // last-6-characters of every active task id, so FS-xxxxxx references can be resolved
     const activeTasks = events.length
-      ? await Task.find({ project: project._id, isArchived: false }).select('_id').lean()
+      ? await Task.find({ project: project._id, isArchived: false }).select('_id title assignee reporter status').lean()
       : [];
     const taskIndex = makeTaskIndex(activeTasks);
 
-    const recorded = { commits: 0, prsOpened: 0, prsMerged: 0 };
+    const recorded = { commits: 0, prsOpened: 0, prsMerged: 0, issuesOpened: 0, issuesClosed: 0, releases: 0, newBranches: extras.newBranches.length };
     const unmatched = new Set();
     const tasksMoved = [];
-    const linkNotes = new Set();
+    const linkNotes = new Set(checked.notes);
     let duplicates = 0;
 
     for (const ev of events) {
@@ -196,6 +242,17 @@ async function syncRepository(req, res) {
         const linked = await applyEventToTasks({ ev, project, index: taskIndex, actor });
         tasksMoved.push(...linked.moved);
         linked.notes.forEach((n) => linkNotes.add(n));
+        // keep our copy of the board up to date for the commits that follow in this sync
+        for (const m of linked.moved) {
+          const t = activeTasks.find((x) => refFor(x._id) === m.ref);
+          if (t) t.status = m.to;
+        }
+
+        // 1b. A plain commit (no reference): link it to the author's one waiting task when that is
+        //     unambiguous (see applyAuthorFallback). Only for people matched through their profile.
+        const byAuthor = await applyAuthorFallback({ ev, project, tasks: activeTasks, userId: matchedId });
+        tasksMoved.push(...byAuthor.moved);
+        byAuthor.notes.forEach((n) => linkNotes.add(n));
 
         // 2. Record the commit / PR itself.
         await recordActivity({
@@ -212,13 +269,28 @@ async function syncRepository(req, res) {
         throw error;
       }
 
+      // FR10: tell the people on the task about the pull request (never throws; see notify())
+      if (ev.type === 'pr_opened' || ev.type === 'pr_merged') {
+        await notifyPullRequest({ ev, project, tasks: activeTasks, index: taskIndex, authorId: matchedId });
+      }
+
       if (ev.type === 'commit_pushed') recorded.commits += 1;
       else if (ev.type === 'pr_opened') recorded.prsOpened += 1;
       else if (ev.type === 'pr_merged') recorded.prsMerged += 1;
+      else if (ev.type === 'issue_opened') recorded.issuesOpened += 1;
+      else if (ev.type === 'issue_closed') recorded.issuesClosed += 1;
+      else if (ev.type === 'release_published') recorded.releases += 1;
     }
 
     link.lastSyncedAt = now;
     link.lastSyncSummary = recorded;
+    if (extras.branchNames) {
+      link.knownBranches = extras.branchNames;
+      link.branchesBaselined = true;
+      if (extras.newBranches.length) {
+        link.recentNewBranches = [...extras.newBranches.map((n) => ({ name: n, seenAt: now })), ...(link.recentNewBranches || [])].slice(0, 10);
+      }
+    }
     await link.save();
 
     res.json({
@@ -226,8 +298,13 @@ async function syncRepository(req, res) {
       repo: link.repoFullName,
       since,
       fetched: { commits: commits.length, pullRequests: pulls.length },
+      newBranches: extras.newBranches,
+      branchCount: extras.branchNames ? extras.branchNames.length : null,
+      unavailable: extras.unavailable,
+      notes: extras.notes,
       recorded,
       skippedAlreadyRecorded: duplicates,
+      skippedNoChanges: checked.skipped,
       tasksMoved,
       taskLinkNotes: [...linkNotes].slice(0, 20),
       unmatchedGithubUsers: [...unmatched],
@@ -253,7 +330,8 @@ async function listTaskRefs(req, res) {
       success: true,
       howTo:
         'Put a task reference in a commit message, branch name or PR title, for example "FS-0140ad start login page". ' +
-        'A linked commit moves the task to In Progress, an opened PR to Review and a merged PR to Done (tasks only move forward).',
+        'A linked commit moves the task to In Progress, an opened PR to Review and a merged PR to Done (tasks only move forward). ' +
+        'A commit with no reference moves the author\'s only task in To Do to In Progress, if the author\'s GitHub username is on their profile and they are not already working on something; otherwise nothing is guessed.',
       tasks: tasks.map((t) => ({ _id: t._id, ref: refFor(t._id), title: t.title, status: t.status })),
     });
   } catch (error) {

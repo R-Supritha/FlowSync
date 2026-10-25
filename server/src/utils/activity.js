@@ -1,3 +1,4 @@
+const { postBotMessage } = require('./chatBot');
 const ActivityLog = require('../models/ActivityLog');
 const Task = require('../models/Task');
 const Comment = require('../models/Comment');
@@ -18,6 +19,9 @@ const CATEGORY_BY_TYPE = {
   task_assigned: 'planning',
   task_deleted: 'planning',
   file_uploaded: 'planning',
+  issue_opened: 'planning',
+  issue_closed: 'completed',
+  release_published: 'completed',
 };
 
 // [singular, plural] wording for the "5 commits, 2 tasks completed" summaries.
@@ -34,6 +38,9 @@ const LABELS = {
   task_assigned: ['task assigned', 'tasks assigned'],
   file_uploaded: ['file uploaded', 'files uploaded'],
   task_deleted: ['task deleted', 'tasks deleted'],
+  issue_opened: ['issue opened', 'issues opened'],
+  issue_closed: ['issue closed', 'issues closed'],
+  release_published: ['release', 'releases'],
 };
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -115,6 +122,8 @@ async function logActivity({ workspace, project, actor, type, message, task, tas
 function logTaskStatusChange({ task, project, actor, previousStatus }) {
   if (task.status === previousStatus) return null;
   const done = task.status === DONE_STATUS;
+  // FR30: tell the project's chat (never throws, not waited for)
+  if (done) postBotMessage({ workspace: project.workspace, project: project._id, actor, kind: 'task_done', text: `✅ "${task.title}" is Done` });
   return logActivity({
     workspace: project.workspace,
     project: project._id,

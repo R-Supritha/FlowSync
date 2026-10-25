@@ -15,7 +15,16 @@ const githubLinkSchema = new mongoose.Schema(
       commits: { type: Number, default: 0 },
       prsOpened: { type: Number, default: 0 },
       prsMerged: { type: Number, default: 0 },
+      issuesOpened: { type: Number, default: 0 },
+      issuesClosed: { type: Number, default: 0 },
+      releases: { type: Number, default: 0 },
+      newBranches: { type: Number, default: 0 },
     },
+    // FR13: the branches seen at the last sync, so the next sync can tell which ones are new.
+    // branchesBaselined stays false until the first sync has remembered the existing ones (they are not "new").
+    knownBranches: [{ type: String }],
+    branchesBaselined: { type: Boolean, default: false },
+    recentNewBranches: [{ name: { type: String }, seenAt: { type: Date } }],
   },
   { timestamps: true }
 );

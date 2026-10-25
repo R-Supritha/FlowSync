@@ -1,6 +1,7 @@
 const mammoth = require('mammoth');
 const JSZip = require('jszip');
 const pdfParse = require('pdf-parse');
+const path = require('path');
 const Tesseract = require('tesseract.js');
 
 // Shared extraction engine for FR11 (AI project bootstrap) and FR12 (OCR).
@@ -52,6 +53,17 @@ async function ocrImageBuffer(buffer) {
       Tesseract.recognize(buffer, 'eng', {
         // Logs are noisy during batch OCR; keep the server output clean.
         logger: () => {},
+        // Without this, tesseract.js THROWS from its worker thread when it cannot load the
+        // language data (offline server, blocked network), which crashes the whole API process.
+        // With it, the recognize() promise rejects and the catch below returns a clean 422.
+        errorHandler: () => {},
+        // Language data shipped with the server (server/tessdata/eng.traineddata), so OCR
+        // works offline and never depends on downloading from a CDN at request time.
+        langPath: path.join(__dirname, '..', '..', 'tessdata'),
+        gzip: false,
+        // Do not write a copy of the language file into the server folder. That write changed a file
+        // under the project, and `npm run dev` (node --watch) restarted the API in the middle of the request.
+        cacheMethod: 'none',
       }),
       OCR_TIMEOUT_MS,
       'OCR took too long and was cancelled'

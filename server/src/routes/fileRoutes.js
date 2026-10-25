@@ -1,3 +1,4 @@
+const fs = require('fs');
 const express = require('express');
 const protect = require('../middleware/authMiddleware');
 const validateObjectId = require('../middleware/validateObjectId');
@@ -29,13 +30,22 @@ function handleUpload(req, res, next) {
   });
 }
 
-router.post('/projects/:projectId/files', protect, validateObjectId('projectId'), handleUpload, uploadToProject);
+// multer saves the file BEFORE the controller decides whether the upload is allowed (right role, room left...).
+// When the answer is an error, the file must not stay behind on the disk.
+function discardOnError(req, res, next) {
+  res.on('finish', () => {
+    if (res.statusCode >= 400 && req.file && req.file.path) fs.unlink(req.file.path, () => {});
+  });
+  next();
+}
+
+router.post('/projects/:projectId/files', protect, validateObjectId('projectId'), handleUpload, discardOnError, uploadToProject);
 router.get('/projects/:projectId/files', protect, validateObjectId('projectId'), listProjectFiles);
 
-router.post('/tasks/:taskId/files', protect, validateObjectId('taskId'), handleUpload, uploadToTask);
+router.post('/tasks/:taskId/files', protect, validateObjectId('taskId'), handleUpload, discardOnError, uploadToTask);
 router.get('/tasks/:taskId/files', protect, validateObjectId('taskId'), listTaskFiles);
 
-router.post('/comments/:commentId/files', protect, validateObjectId('commentId'), handleUpload, uploadToComment);
+router.post('/comments/:commentId/files', protect, validateObjectId('commentId'), handleUpload, discardOnError, uploadToComment);
 
 router.get('/files/:id', protect, validateObjectId('id'), getFile);
 router.get('/files/:id/download', protect, validateObjectId('id'), downloadFile);

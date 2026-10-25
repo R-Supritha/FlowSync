@@ -115,7 +115,9 @@ async function reorderColumn(req, res) {
       return fail(res, 400, 'orderedTaskIds must be an array of task ids');
     }
 
-    const existing = await Task.find({ project: project._id, status }).select('_id');
+    // Archived tasks are hidden from the board, so they must not count here (otherwise a column that
+    // holds an archived task could never be reordered).
+    const existing = await Task.find({ project: project._id, status, isArchived: false }).select('_id');
     const existingIds = new Set(existing.map((t) => String(t._id)));
     const givenIds = new Set(orderedTaskIds.map(String));
     if (existingIds.size !== givenIds.size || [...existingIds].some((id) => !givenIds.has(id))) {
@@ -126,7 +128,7 @@ async function reorderColumn(req, res) {
       orderedTaskIds.map((id, index) => Task.updateOne({ _id: id }, { position: index }))
     );
 
-    const tasks = await Task.find({ project: project._id, status }).sort({ position: 1 });
+    const tasks = await Task.find({ project: project._id, status, isArchived: false }).sort({ position: 1 });
     res.json({ success: true, status, tasks });
   } catch (error) {
     serverError(res, 'Failed to reorder column', error);

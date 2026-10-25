@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { Modal } from './ui'
-import { createWorkspace, inviteMember } from '../store/workspacesSlice'
+import { createWorkspace, inviteMember, selectRoleIn } from '../store/workspacesSlice'
 import { createProject, fetchTemplates } from '../store/projectsSlice'
 import { pushToast } from '../store/uiSlice'
 import { ROLES } from '../utils/roles'
@@ -135,6 +135,7 @@ export function NewProjectModal({ workspaceId, onClose }) {
 
 export function InviteModal({ workspaceId, onClose }) {
   const dispatch = useDispatch()
+  const myRole = useSelector((s) => selectRoleIn(s, workspaceId))
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('Member')
   const [error, setError] = useState('')
@@ -163,7 +164,7 @@ export function InviteModal({ workspaceId, onClose }) {
         <input id="inv-email" type="email" className="fs-input" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
         <label className="fs-label" htmlFor="inv-role">Role</label>
         <select id="inv-role" className="fs-select" value={role} onChange={(e) => setRole(e.target.value)}>
-          {ROLES.map((r) => (
+          {ROLES.filter((r) => r !== 'Admin' || myRole === 'Admin').map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>

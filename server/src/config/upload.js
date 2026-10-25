@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 
 // Stored outside src/, at server/uploads, so it survives alongside the app root.
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB

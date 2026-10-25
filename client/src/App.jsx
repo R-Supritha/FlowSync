@@ -3,10 +3,17 @@ import ProtectedRoute from './components/ProtectedRoute'
 import AppShell from './components/AppShell'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
+import VerifyEmail from './pages/VerifyEmail'
 import Dashboard from './pages/Dashboard'
 import ProjectsPage from './pages/Projects'
 import NewProject from './pages/NewProject'
 import AiProjectGenerator from './pages/AiProjectGenerator'
+import ProjectFiles from './pages/ProjectFiles'
+import ProjectStandup from './pages/ProjectStandup'
+import ProjectSprint from './pages/ProjectSprint'
+import ChatPage from './pages/Chat'
 import Board from './pages/Board'
 import ProjectCalendarPage from './pages/ProjectCalendar'
 import ProjectActivityPage from './pages/ProjectActivity'
@@ -30,6 +37,9 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route index element={<Dashboard />} />
@@ -42,6 +52,10 @@ export default function App() {
           <Route path="projects/:projectId/analytics" element={<ProjectAnalyticsPage />} />
           <Route path="projects/:projectId/github" element={<ProjectGithubPage />} />
           <Route path="projects/:projectId/milestones" element={<ProjectMilestonesPage />} />
+          <Route path="projects/:projectId/files" element={<ProjectFiles />} />
+          <Route path="projects/:projectId/standup" element={<ProjectStandup />} />
+          <Route path="projects/:projectId/sprint" element={<ProjectSprint />} />
+          <Route path="chat" element={<ChatPage />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="github" element={<Github />} />

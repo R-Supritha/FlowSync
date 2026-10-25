@@ -7,16 +7,19 @@ import {
   GitPullRequest,
   Kanban,
   LayoutDashboard,
+  MessageSquare,
   PanelBottom,
   Search,
   Settings,
   User,
 } from 'lucide-react'
 import { togglePanel, toggleSidebar, setSearchOpen } from '../../store/uiSlice'
+import { selectUnreadTotal } from '../../store/chatSlice'
 
 export default function ActivityBar() {
   const dispatch = useDispatch()
   const unread = useSelector((s) => s.notifications.unreadCount)
+  const chatUnread = useSelector(selectUnreadTotal)
 
   return (
     <nav className="activitybar" aria-label="Main navigation">
@@ -25,6 +28,12 @@ export default function ActivityBar() {
       </NavLink>
       <NavLink to="/projects" className={({ isActive }) => `act-btn${isActive ? ' active' : ''}`} title="Boards" aria-label="Boards">
         <Kanban size={19} aria-hidden="true" />
+      </NavLink>
+      <NavLink to="/chat" className={({ isActive }) => `act-btn${isActive ? ' active' : ''}`} title="Chat" aria-label="Chat">
+        <span className="act-wrap">
+          <MessageSquare size={19} aria-hidden="true" />
+          {chatUnread > 0 && <span className="badge-dot" aria-label={`${chatUnread} unread messages`}>{chatUnread > 99 ? '99+' : chatUnread}</span>}
+        </span>
       </NavLink>
       <hr className="act-sep" />
       <button type="button" className="act-btn" title="Toggle sidebar (Ctrl+B)" aria-label="Toggle sidebar" onClick={() => dispatch(toggleSidebar())}>

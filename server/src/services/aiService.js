@@ -14,7 +14,8 @@ const MAX_REQUIREMENTS_CHARS = 40000;
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// "-latest" always points at the current flash model, so the app does not break when Google retires a version.
+const GEMINI_MODEL = 'gemini-flash-latest';
 
 class AiUnavailableError extends Error {
   constructor(message) {
@@ -51,6 +52,7 @@ function aiConfig() {
     key: process.env.AI_API_KEY,
     baseUrl,
     model: process.env.AI_MODEL || (isGemini ? GEMINI_MODEL : DEFAULT_MODEL),
+    thinkingLevel: isGemini ? String(process.env.AI_THINKING_LEVEL || '').trim().toLowerCase() : '',
   };
 }
 
@@ -58,7 +60,15 @@ function isAiConfigured() {
   return Boolean(process.env.AI_API_KEY);
 }
 
-const SYSTEM_PROMPT = `You are a senior project planner inside a project-management tool.
+// How many tasks to ask the AI for. Asking for fewer makes the answer much faster on the free tiers
+// (the newer models also "think" first). The plan can still be edited, and sanitizePlan allows up to MAX_TASKS.
+function requestedTaskCount() {
+  const n = Math.round(Number(process.env.AI_PLAN_MAX_TASKS));
+  return Number.isFinite(n) ? Math.min(Math.max(n, 5), MAX_TASKS) : 12;
+}
+
+function systemPrompt() {
+  return `You are a senior project planner inside a project-management tool.
 Given raw project requirements, produce a structured project plan as JSON with this exact shape:
 {
   "name": "project name (max 100 chars)",
@@ -88,10 +98,11 @@ Given raw project requirements, produce a structured project plan as JSON with t
 Rules:
 - Output JSON only, no prose, no markdown fences.
 - 3-8 milestones with increasing offsetDays (0-365).
-- 5-${MAX_TASKS} tasks, ordered so dependencies only point to earlier tasks (lower indexes).
+- 5-${requestedTaskCount()} tasks, ordered so dependencies only point to earlier tasks (lower indexes).
 - Every task needs at least one acceptance criterion and a realistic estimatedHours (0.5-200).
 - milestoneIndex must reference a milestone in the plan or be null.
 - Keep titles concise; put detail in descriptions.`;
+}
 
 function asString(value, max) {
   if (value === undefined || value === null) return '';
@@ -220,8 +231,8 @@ function parseModelJson(content) {
 }
 
 // Builds the HTTP request + response-extractor for the configured provider.
-function buildAiRequest(config, text) {
-  const userText = `Project requirements:\n\n${text}`;
+function buildAiRequest(config, { system, user }) {
+  const userText = user;
   if (config.provider === 'gemini') {
     return {
       url: `${config.baseUrl}/models/${encodeURIComponent(config.model)}:generateContent`,
@@ -230,11 +241,14 @@ function buildAiRequest(config, text) {
         'x-goog-api-key': config.key,
       },
       body: {
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: userText }] }],
         generationConfig: {
           temperature: 0.3,
           responseMimeType: 'application/json',
+          // Optional (AI_THINKING_LEVEL=low|minimal|medium|high). The newer Gemini models "think"
+          // before answering, which can add 20+ seconds; a lower level makes plans come back faster.
+          ...(config.thinkingLevel ? { thinkingConfig: { thinkingLevel: config.thinkingLevel } } : {}),
         },
       },
       extract: (data) => {
@@ -255,7 +269,7 @@ function buildAiRequest(config, text) {
       temperature: 0.3,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: system },
         { role: 'user', content: userText },
       ],
     },
@@ -264,10 +278,118 @@ function buildAiRequest(config, text) {
   };
 }
 
-// Asks the model for a structured plan from free-form requirements text.
-async function generateProjectPlan(requirements) {
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// One HTTP call to one model. Returns { ok, status, data } for any answer from the AI service, and
+// throws AiUnavailableError only when there was no answer (timeout, no network).
+async function callModel(config, prompt, timeoutOverride) {
+  const request = buildAiRequest(config, prompt);
+  const timeoutMs = timeoutOverride || Number(process.env.AI_TIMEOUT_MS) || 120 * 1000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      signal: controller.signal,
+      body: JSON.stringify(request.body),
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (error) {
+      data = null;
+    }
+    return { ok: response.ok, status: response.status, data, request };
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      const err = new AiUnavailableError('The AI service timed out. Please try again.');
+      err.timedOut = true;
+      throw err;
+    }
+    throw new AiUnavailableError('The AI service could not be reached. Please try again later.');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// The models to try, in order: AI_MODEL first, then AI_FALLBACK_MODELS (comma separated).
+function modelsToTry(config) {
+  const extra = String(process.env.AI_FALLBACK_MODELS || '')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean);
+  return [config.model, ...extra.filter((m) => m !== config.model)];
+}
+
+// Sends one prompt to the AI and returns the parsed JSON object. Used by every AI feature
+// (project plans, task breakdown, stand-up reports, sprint summaries).
+// The free AI tiers are often overloaded (HTTP 503) or retire a model (HTTP 404), so:
+//   - a 503 is retried on the same model after a short wait,
+//   - a 503 that persists, a 404, a 429 or a timeout moves on to the next model in AI_FALLBACK_MODELS,
+//   - a rejected key stops immediately (another model cannot fix that),
+//   - if every model fails, the last failure is reported together with what the service said.
+// options: { timeoutMs } shortens the wait for optional extras; { useFallbacks: false } tries one model only.
+async function generateJson({ system, user }, options = {}) {
   const config = aiConfig();
   if (!config.key) {
+    throw new AiUnavailableError(
+      'AI is not configured on this server. Set AI_API_KEY (and optionally AI_PROVIDER / AI_BASE_URL / AI_MODEL).'
+    );
+  }
+
+  const retryDelay = Number(process.env.AI_RETRY_DELAY_MS) || 1500;
+  const overloadRetries = 2;
+  const models = options.useFallbacks === false ? [config.model] : modelsToTry(config);
+  let lastFailure = null;
+
+  for (const model of models) {
+    const modelConfig = { ...config, model };
+
+    for (let attempt = 0; attempt <= overloadRetries; attempt += 1) {
+      let result;
+      try {
+        result = await callModel(modelConfig, { system, user }, options.timeoutMs);
+      } catch (error) {
+        if (!error.timedOut) throw error; // no network: other models will not help
+        lastFailure = error;
+        break; // timed out: try the next model
+      }
+
+      if (result.ok) {
+        return parseModelJson(result.request.extract(result.data));
+      }
+
+      const detail = result.data && result.data.error && result.data.error.message ? String(result.data.error.message) : '';
+      const badCredentials = result.status === 401 || result.status === 403
+        || /api key|api_key|unauthenticated|permission/i.test(detail);
+      if (badCredentials) {
+        throw new AiUnavailableError(
+          `The AI service rejected the server credentials (${config.provider}). Check AI_API_KEY / AI_PROVIDER / AI_BASE_URL.`
+        );
+      }
+
+      // Include what the AI service said (it never contains our key), so a wrong model name or a
+      // quota problem is visible on screen instead of just "HTTP 404".
+      const why = detail ? `: ${detail.replace(/\s+/g, ' ').slice(0, 220)}` : '';
+      lastFailure = new AiUnavailableError(
+        `The AI service returned an error (HTTP ${result.status}) for model ${model}${why}. Please try again later.`
+      );
+
+      if (result.status === 503 && attempt < overloadRetries) {
+        await sleep(retryDelay * (attempt + 1));
+        continue; // overloaded: wait and retry the same model
+      }
+      break; // give up on this model and try the next one
+    }
+  }
+
+  throw lastFailure || new AiUnavailableError('The AI service could not be used. Please try again later.');
+}
+
+// Asks the model for a structured plan from free-form requirements text.
+async function generateProjectPlan(requirements) {
+  if (!isAiConfigured()) {
     throw new AiUnavailableError(
       'AI project generation is not configured on this server. Set AI_API_KEY (and optionally AI_PROVIDER / AI_BASE_URL / AI_MODEL), or create the project manually.'
     );
@@ -281,47 +403,7 @@ async function generateProjectPlan(requirements) {
     throw new AiInvalidResponseError(`Requirements are too long (max ${MAX_REQUIREMENTS_CHARS} characters).`);
   }
 
-  const request = buildAiRequest(config, text);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60 * 1000);
-
-  let response;
-  try {
-    response = await fetch(request.url, {
-      method: 'POST',
-      headers: request.headers,
-      signal: controller.signal,
-      body: JSON.stringify(request.body),
-    });
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new AiUnavailableError('The AI service timed out. Please try again.');
-    }
-    throw new AiUnavailableError('The AI service could not be reached. Please try again later.');
-  } finally {
-    clearTimeout(timer);
-  }
-
-  let data = null;
-  try {
-    data = await response.json();
-  } catch (error) {
-    data = null;
-  }
-
-  if (!response.ok) {
-    const detail = data && data.error && data.error.message ? String(data.error.message) : '';
-    const badCredentials = response.status === 401 || response.status === 403
-      || /api key|api_key|unauthenticated|permission/i.test(detail);
-    if (badCredentials) {
-      throw new AiUnavailableError(
-        `The AI service rejected the server credentials (${config.provider}). Check AI_API_KEY / AI_PROVIDER / AI_BASE_URL.`
-      );
-    }
-    throw new AiUnavailableError(`The AI service returned an error (HTTP ${response.status}). Please try again later.`);
-  }
-
-  const raw = parseModelJson(request.extract(data));
+  const raw = await generateJson({ system: systemPrompt(), user: `Project requirements:\n\n${text}` });
   return sanitizePlan(raw);
 }
 
@@ -330,6 +412,7 @@ module.exports = {
   AiInvalidResponseError,
   isAiConfigured,
   generateProjectPlan,
+  generateJson,
   sanitizePlan,
   parseModelJson,
   PRIORITIES,

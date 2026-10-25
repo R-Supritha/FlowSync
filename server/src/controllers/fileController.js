@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { assetView } = require('../utils/fileView');
 const FileAsset = require('../models/FileAsset');
 const Project = require('../models/Project');
 const Task = require('../models/Task');
@@ -7,6 +8,8 @@ const Comment = require('../models/Comment');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { UPLOAD_DIR } = require('../config/upload');
 const { logFileUploaded } = require('../utils/activity');
+
+const MAX_COMMENT_FILES = 5;
 
 function fail(res, status, message) {
   res.status(status).json({ success: false, message });
@@ -16,21 +19,6 @@ function fail(res, status, message) {
 function removeFromDisk(storedName) {
   const filePath = path.join(UPLOAD_DIR, storedName);
   fs.unlink(filePath, () => {}); // best effort; missing file is not an error for the caller
-}
-
-function assetView(asset) {
-  return {
-    _id: asset._id,
-    originalName: asset.originalName,
-    url: asset.url,
-    mimetype: asset.mimetype,
-    size: asset.size,
-    uploadedBy: asset.uploadedBy,
-    project: asset.project,
-    task: asset.task,
-    comment: asset.comment,
-    createdAt: asset.createdAt,
-  };
 }
 
 async function saveUploadedFile(req, res, { workspace, project, task, comment }) {
@@ -92,6 +80,9 @@ async function uploadToComment(req, res) {
     if (!canWrite(role)) return fail(res, 403, 'Viewers cannot upload files');
     if (String(comment.author) !== String(req.user.id)) {
       return fail(res, 403, 'Only the comment author can attach files to it');
+    }
+    if ((await FileAsset.countDocuments({ comment: comment._id })) >= MAX_COMMENT_FILES) {
+      return fail(res, 400, `A comment can have at most ${MAX_COMMENT_FILES} attachments`);
     }
 
     await saveUploadedFile(req, res, { workspace: task.workspace, comment: comment._id });

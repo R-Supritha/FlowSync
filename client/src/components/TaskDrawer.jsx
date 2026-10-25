@@ -7,6 +7,9 @@ import { canModifyTask, canWrite } from '../utils/roles'
 import { taskRef, toDateInput } from '../utils/format'
 import { fetchPeople, selectRoleIn } from '../store/workspacesSlice'
 import { ConfirmDialog, ErrorState, Modal, Spinner } from './ui'
+import Comments from './Comments'
+import Subtasks from './Subtasks'
+import Files from './Files'
 
 const PRIORITIES = ['Low', 'Medium', 'High']
 const EMPTY = {}
@@ -92,7 +95,7 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
   async function save(e) {
     e.preventDefault()
     if (!form.title.trim()) return setError('Title is required')
-    const body = {
+    const fields = {
       title: form.title.trim(),
       description: form.description,
       priority: form.priority,
@@ -100,10 +103,16 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
       deadline: form.deadline || null,
       estimatedHours: Number(form.estimatedHours) || 0,
       actualHours: Number(form.actualHours) || 0,
-      assignee: form.assignee || null,
       checklist: form.checklist.filter((c) => c.text.trim()),
     }
-    const res = await run(() => taskApi.update(taskId, body), 'Task saved')
+    // The assignee goes through the dedicated assign call: only that one notifies the new
+    // assignee and writes the "assigned" line in the activity feed.
+    const assigneeChanged = (form.assignee || '') !== (task.assignee?._id || '')
+    const res = await run(async () => {
+      let saved = await taskApi.update(taskId, fields)
+      if (assigneeChanged) saved = await taskApi.assign(taskId, form.assignee || null)
+      return saved
+    }, 'Task saved')
     if (res) {
       setTask(res.task)
       onChanged()
@@ -272,6 +281,14 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
             {editable && <button type="submit" className="fs-btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>}
           </div>
         </form>
+      )}
+
+      {task && form && (
+        <>
+          <Subtasks task={task} editable={editable && !task.isArchived} onTaskChange={(t) => { setTask(t); if (onChanged) onChanged() }} />
+          <Comments taskId={taskId} people={people} role={role} me={me} canWrite={canWrite(role)} />
+          <Files scope="task" id={taskId} role={role} me={me} canUpload={canWrite(role)} />
+        </>
       )}
 
       {confirmDelete && (

@@ -1,3 +1,4 @@
+const { postBotMessage } = require('./chatBot');
 const Task = require('../models/Task');
 const ActivityLog = require('../models/ActivityLog');
 const { publish } = require('./activityBus');
@@ -60,7 +61,7 @@ function describeTrigger(ev) {
 
 // Moves one task forward because of one GitHub event. Tasks only ever move FORWARD
 // automatically (a later commit never pulls a task back out of Review or Done).
-async function moveTask({ ev, project, taskId, actor, ref }) {
+async function moveTask({ ev, project, taskId, actor, ref, viaAuthor = false }) {
   const target = TARGET_BY_EVENT[ev.type];
   if (!target) return { status: 'ignored' };
 
@@ -87,7 +88,7 @@ async function moveTask({ ev, project, taskId, actor, ref }) {
   await task.save();
 
   const done = target === DONE_STATUS;
-  const because = describeTrigger(ev);
+  const because = describeTrigger(ev) + (viaAuthor ? ', matched by author' : '');
   await recordActivity({
     workspace: project.workspace,
     project: project._id,
@@ -105,11 +106,14 @@ async function moveTask({ ev, project, taskId, actor, ref }) {
       auto: true,
       trigger: ev.type,
       ref,
+      via: viaAuthor ? 'author' : 'reference',
       url: ev.meta && ev.meta.url,
     },
     // one millisecond after the commit / PR, so the move sits right above it in the feed
     createdAt: new Date(ev.date.getTime() + 1),
   });
+  // FR30: tell the project's chat (never throws, not waited for)
+  if (done) postBotMessage({ workspace: project.workspace, project: project._id, actor, kind: 'task_done', text: `✅ "${task.title}" is Done (${because})` });
 
   return { status: 'moved', moved: { ref, title: task.title, from: previousStatus, to: target, because } };
 }
@@ -136,7 +140,54 @@ async function applyEventToTasks({ ev, project, index, actor }) {
   return { moved, notes };
 }
 
+// A commit with NO task reference. If we know who made it (their GitHub username is on a FlowSync
+// profile) we can still link it, but only when that is unambiguous:
+//   - the person is already working on something (a task of theirs in In Progress or later): do nothing,
+//   - they have exactly ONE task waiting in To Do: move it to In Progress,
+//   - they have several waiting: do not guess, say so in the sync message.
+// Pull requests are never linked this way, only plain commits. GITHUB_AUTHOR_FALLBACK=false turns it off.
+const WAITING_COLUMN = 'To Do';
+
+function authorFallbackEnabled() {
+  return String(process.env.GITHUB_AUTHOR_FALLBACK || '').trim().toLowerCase() !== 'false';
+}
+
+// tasks: [{ _id, assignee, status }]. Updated in place when a task is moved, so later commits in the
+// same sync see the new state.
+async function applyAuthorFallback({ ev, project, tasks, userId }) {
+  const nothing = { moved: [], notes: [] };
+  if (!authorFallbackEnabled() || ev.type !== 'commit_pushed' || !userId) return nothing;
+  if (extractRefs(ev.text).length > 0) return nothing; // an explicit reference always wins
+
+  const columns = project.columns || [];
+  const startedIndex = columns.indexOf(TARGET_BY_EVENT.commit_pushed);
+  if (startedIndex === -1 || !columns.includes(WAITING_COLUMN)) return nothing;
+
+  const mine = (tasks || []).filter((t) => t.assignee && String(t.assignee) === String(userId) && t.status !== DONE_STATUS);
+  if (mine.some((t) => columns.indexOf(t.status) >= startedIndex)) return nothing; // already working on one
+  const waiting = mine.filter((t) => t.status === WAITING_COLUMN);
+  if (waiting.length === 0) return nothing;
+
+  if (waiting.length > 1) {
+    const sha = String((ev.meta && ev.meta.sha) || '').slice(0, 7);
+    return {
+      moved: [],
+      notes: [`Commit ${sha} has no task reference and @${ev.login} has ${waiting.length} tasks in ${WAITING_COLUMN}, so nothing was moved. Add a reference such as ${refFor(waiting[0]._id)} to the commit message.`],
+    };
+  }
+
+  const task = waiting[0];
+  const result = await moveTask({ ev, project, taskId: task._id, actor: userId, ref: refFor(task._id), viaAuthor: true });
+  if (result.status === 'moved') {
+    task.status = result.moved.to;
+    return { moved: [result.moved], notes: [] };
+  }
+  return { moved: [], notes: result.note ? [result.note] : [] };
+}
+
 module.exports = {
+  applyAuthorFallback,
+  authorFallbackEnabled,
   refFor,
   extractRefs,
   makeTaskIndex,

@@ -1752,6 +1752,16 @@ code {
   font-size: 0.8em;
 }
 
+/* With the side bars open the main area is much narrower than the window, so the two dashboard cards stack earlier. */
+@media (max-width: 1250px) {
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+  .dash-grid > .span-2 {
+    grid-column: span 1;
+  }
+}
+
 @media (max-width: 900px) {
   .dash-grid,
   .profile-grid {
@@ -1777,4 +1787,175 @@ code {
   .titlebar .fs-btn.ghost .menu-label {
     display: none;
   }
+}
+
+/* Stand-up report, sprint planning and subtasks (FR23, FR24, FR25).
+   The stat cards reuse the dashboard's .stat-grid / .stat / .stat-value. */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Chat (FR26, FR27) */
+.chat-layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.chat-channels {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 12px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.chat-channel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-channel:hover,
+.chat-channel.active {
+  background: var(--bg-elev);
+}
+.chat-channel.active {
+  font-weight: 600;
+}
+.chat-badge {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 8px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 12px 16px;
+}
+.chat-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-header h1 {
+  margin: 0;
+  font-size: 1.2em;
+}
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.chat-msg {
+  display: flex;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: 4px;
+}
+.chat-msg:hover {
+  background: var(--bg-elev);
+}
+.chat-msg-body {
+  flex: 1;
+  min-width: 0;
+}
+.chat-msg-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.chat-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-msg-actions {
+  display: none;
+  gap: 4px;
+  margin-top: 2px;
+}
+.chat-msg:hover .chat-msg-actions,
+.chat-msg:focus-within .chat-msg-actions {
+  display: flex;
+}
+.chat-composer {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 700px) {
+  .chat-channels {
+    width: 150px;
+  }
+}
+
+/* Email confirmation banner (FR1) */
+.verify-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--warn);
+  color: #1b1b1b;
+  font-size: 0.95em;
+}
+.verify-banner span {
+  flex: 1;
+}
+
+/* Achievements (FR21) */
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.badge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+}
+.badge-card.earned {
+  border-color: var(--ok);
+}
+.badge-card.locked {
+  opacity: 0.75;
+}
+.badge-status {
+  color: var(--ok);
+  font-weight: 600;
 }

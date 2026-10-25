@@ -7,11 +7,13 @@ import { pushToast, setFontSize, setLanguage, setTheme } from '../store/uiSlice'
 import { Field, Spinner } from '../components/ui'
 import { LANGUAGES as I18N_LANGUAGES } from '../i18n'
 
+// Must match the levels the API returns (server/src/utils/privacy.js VISIBILITY_LEVELS).
+const LEVEL_LABEL = { everyone: 'Everyone', team: 'My teammates', managers: 'Managers only', private: 'Only me' }
 const LEVEL_HELP = {
-  workspace: 'Anyone in the same workspace as you',
-  team: 'Anyone in a team with you',
-  shared: 'Anyone who shares a workspace with you that the viewer also belongs to',
-  public: 'Visible to everyone on FlowSync',
+  everyone: 'Anyone who shares a workspace with you',
+  team: 'Only people on a team with you',
+  managers: 'Only Admins and Managers of your workspaces',
+  private: 'Only you',
 }
 
 const THEME_OPTIONS = [
@@ -239,7 +241,7 @@ export default function SettingsPage() {
                 value={form.statusVisibility}
                 onChange={(e) => setForm({ ...form, statusVisibility: e.target.value })}
               >
-                {levels.map((l) => <option key={l} value={l}>{l}</option>)}
+                {levels.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l] || l}</option>)}
               </select>
               <span className="fs-help">{LEVEL_HELP[form.statusVisibility]}</span>
             </Field>
@@ -250,7 +252,7 @@ export default function SettingsPage() {
                 value={form.contributionVisibility}
                 onChange={(e) => setForm({ ...form, contributionVisibility: e.target.value })}
               >
-                {levels.map((l) => <option key={l} value={l}>{l}</option>)}
+                {levels.map((l) => <option key={l} value={l}>{LEVEL_LABEL[l] || l}</option>)}
               </select>
               <span className="fs-help">{LEVEL_HELP[form.contributionVisibility]}</span>
             </Field>

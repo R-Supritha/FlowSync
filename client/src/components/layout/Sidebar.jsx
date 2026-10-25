@@ -1,3 +1,4 @@
+import { avatarSrc } from '../../utils/avatar'
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { NavLink, useLocation } from 'react-router-dom'
@@ -170,7 +171,7 @@ export default function Sidebar() {
             return (
               <li key={m.user}>
                 <NavLink to={`/profile/${m.user}`} className="side-link member-row">
-                  <Avatar name={person?.name} size={20} presence={isOnline(live) ? STATUS_COLOR[live.status] : undefined} />
+                  <Avatar name={person?.name} url={avatarSrc(person?.avatarUrl)} size={20} presence={isOnline(live) ? STATUS_COLOR[live.status] : undefined} />
                   <span className="ellipsis">{person?.name || 'Member'}</span>
                   <span className="badge">{m.role}</span>
                 </NavLink>

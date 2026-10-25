@@ -12,6 +12,9 @@ export const ACTIVITY_LABELS = {
   pr_opened: 'Pull request',
   pr_merged: 'PR merged',
   review_submitted: 'Review',
+  issue_opened: 'Issue opened',
+  issue_closed: 'Issue closed',
+  release_published: 'Release',
 }
 
 // Colour bucket used by the weekly contribution dots (mirrors utils/activity.js on the server).

@@ -1,3 +1,4 @@
+import { avatarSrc } from '../utils/avatar'
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -106,7 +107,7 @@ export default function TeamDetail() {
             return (
               <li key={String(m.user)} className="member-list-item">
                 <button type="button" className="fs-row" style={{ gap: 8, flex: 1, textAlign: 'left', background: 'none', border: 0, color: 'inherit', cursor: 'pointer' }} onClick={() => navigate(`/profile/${m.user}`)}>
-                  <Avatar name={person?.name} size={26} presence={isOnline(live) ? STATUS_COLOR[live.status] : undefined} />
+                  <Avatar name={person?.name} url={avatarSrc(person?.avatarUrl)} size={26} presence={isOnline(live) ? STATUS_COLOR[live.status] : undefined} />
                   <span className="ellipsis">{person?.name || 'Member'}</span>
                 </button>
                 <span className="badge">{m.role}</span>

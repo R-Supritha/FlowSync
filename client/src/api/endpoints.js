@@ -5,6 +5,10 @@ const data = (res) => res.data
 export const authApi = {
   login: (body) => api.post('/auth/login', body).then(data),
   register: (body) => api.post('/auth/register', body).then(data),
+  forgot: (email) => api.post('/auth/forgot-password', { email }).then(data),
+  reset: (token, password) => api.post('/auth/reset-password', { token, password }).then(data),
+  verify: (token) => api.post('/auth/verify-email', { token }).then(data),
+  resend: () => api.post('/auth/resend-verification').then(data),
 }
 
 export const workspaceApi = {
@@ -12,6 +16,9 @@ export const workspaceApi = {
   create: (body) => api.post('/workspaces', body).then(data),
   invite: (id, body) => api.post(`/workspaces/${id}/invite`, body).then(data),
   removeMember: (id, userId) => api.delete(`/workspaces/${id}/members/${userId}`).then(data),
+  update: (id, body) => api.patch(`/workspaces/${id}`, body).then(data),
+  setRole: (id, userId, role) => api.patch(`/workspaces/${id}/members/${userId}`, { role }).then(data),
+  remove: (id, confirmName) => api.delete(`/workspaces/${id}`, { data: { confirmName } }).then(data),
   // The only endpoint that returns member names, so it doubles as the people lookup.
   people: (id) => api.get(`/workspaces/${id}/presence`).then(data),
 }
@@ -126,6 +133,12 @@ export const profileApi = {
   me: () => api.get('/profile').then(data),
   update: (body) => api.put('/profile', body).then(data),
   user: (id) => api.get(`/users/${id}/profile`).then(data),
+  uploadAvatar: (file) => {
+    const form = new FormData()
+    form.append('avatar', file)
+    return api.post('/profile/avatar', form).then(data)
+  },
+  removeAvatar: () => api.delete('/profile/avatar').then(data),
 }
 
 export const activityApi = {
@@ -203,4 +216,33 @@ export const aiProjectApi = {
 export const settingsApi = {
   get: () => api.get('/settings').then(data),
   update: (body) => api.put('/settings', body).then(data),
+}
+
+// FR23 stand-up report, FR24 sprint planning, FR25 task breakdown.
+export const aiAssistApi = {
+  breakdown: (taskId, body) => api.post(`/tasks/${taskId}/ai/breakdown`, body).then(data),
+  standup: (projectId, body) => api.post(`/projects/${projectId}/ai/standup`, body).then(data),
+  sprintPlan: (projectId, body) => api.post(`/projects/${projectId}/ai/sprint-plan`, body).then(data),
+  applySprint: (projectId, body) => api.post(`/projects/${projectId}/sprint/apply`, body).then(data),
+}
+
+// FR26 channels, FR27 live messaging.
+export const chatApi = {
+  channels: (workspaceId, params) => api.get(`/workspaces/${workspaceId}/channels`, { params }).then(data),
+  taskRefs: (workspaceId, refs) => api.post(`/workspaces/${workspaceId}/chat/task-refs`, { refs }).then(data),
+  createChannel: (workspaceId, body) => api.post(`/workspaces/${workspaceId}/channels`, body).then(data),
+  updateChannel: (channelId, body) => api.patch(`/channels/${channelId}`, body).then(data),
+  removeChannel: (channelId) => api.delete(`/channels/${channelId}`).then(data),
+  clear: (channelId) => api.delete(`/channels/${channelId}/messages`).then(data),
+  messages: (channelId, params) => api.get(`/channels/${channelId}/messages`, { params }).then(data),
+  send: (channelId, text) => api.post(`/channels/${channelId}/messages`, { text }).then(data),
+  edit: (messageId, text) => api.patch(`/messages/${messageId}`, { text }).then(data),
+  remove: (messageId) => api.delete(`/messages/${messageId}`).then(data),
+  react: (messageId, emoji) => api.post(`/messages/${messageId}/reactions`, { emoji }).then(data),
+  markRead: (channelId) => api.post(`/channels/${channelId}/read`).then(data),
+  // Server-Sent Events, read with fetch() so the JWT stays in the Authorization header.
+  streamUrl: (workspaceId) => {
+    const base = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+    return `${base}/workspaces/${workspaceId}/chat/stream`
+  },
 }

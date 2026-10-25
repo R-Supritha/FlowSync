@@ -191,15 +191,57 @@ export function MenuItem({ icon: Icon, children, onClick, disabled, danger, ...r
   )
 }
 
+// Open dialogs, newest last. Only the newest one answers Escape and Tab, so a confirmation
+// inside the task drawer closes alone instead of closing the drawer too.
+const modalStack = []
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
 export function Modal({ title, onClose, children, side = false, wide = false, footer }) {
+  const ref = useRef(null)
+  const closeRef = useRef(onClose)
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose()
+    closeRef.current = onClose
+  })
+
+  useEffect(() => {
+    const id = Symbol('modal')
+    modalStack.push(id)
+    const previous = document.activeElement
+    const focusable = () => (ref.current ? [...ref.current.querySelectorAll(FOCUSABLE)] : [])
+    if (ref.current && !ref.current.contains(document.activeElement)) (focusable()[0] || ref.current).focus()
+
+    const onKey = (e) => {
+      if (modalStack[modalStack.length - 1] !== id) return
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        closeRef.current()
+      } else if (e.key === 'Tab') {
+        const items = focusable()
+        if (!items.length) return
+        const first = items[0]
+        const last = items[items.length - 1]
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      modalStack.splice(modalStack.indexOf(id), 1)
+      if (previous && previous.focus) previous.focus()
+    }
+  }, [])
 
   const body = (
     <div
+      ref={ref}
+      tabIndex={-1}
       className={side ? 'drawer' : `modal${wide ? ' wide' : ''}`}
       role="dialog"
       aria-modal="true"

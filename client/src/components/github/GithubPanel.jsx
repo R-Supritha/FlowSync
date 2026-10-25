@@ -1,3 +1,4 @@
+import { summaryText } from '../../utils/githubSummary'
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
@@ -56,12 +57,23 @@ export default function GithubPanel({ projectId }) {
     setSyncing(true)
     try {
       const res = await githubApi.sync(projectId)
+      const moved = (res.tasksMoved || []).length
+      const ignored = (res.skippedNoChanges?.commits || 0) + (res.skippedNoChanges?.pullRequests || 0)
       dispatch(
         pushToast(
-          `Synced ${res.repo}: ${res.recorded.commits} commits, ${res.recorded.prsOpened} PRs opened, ${res.recorded.prsMerged} merged`,
+          `Synced ${res.repo}: ${summaryText(res.recorded)}` +
+            (moved ? `; ${moved} task${moved === 1 ? '' : 's'} moved` : ''),
           'success',
         ),
       )
+      // Issues, releases or branches the token could not read: the sync still worked, so say what is missing.
+      if ((res.unavailable || []).length) dispatch(pushToast((res.notes || []).join(' '), 'info'))
+      // Empty commits / pull requests (no changed files) are not counted as progress. Say so, otherwise
+      // a commit that "did nothing" would look like a bug.
+      if (ignored) {
+        const why = (res.taskLinkNotes || []).slice(0, 2).join(' ')
+        dispatch(pushToast(`${ignored} empty commit${ignored === 1 ? '' : 's'} or pull request${ignored === 1 ? '' : 's'} ignored (no file changes).${why ? ' ' + why : ''}`, 'info'))
+      }
       load()
     } catch (e) {
       dispatch(pushToast(errorMessage(e, 'Sync failed'), 'error'))
@@ -122,12 +134,22 @@ export default function GithubPanel({ projectId }) {
           <div><dt>Default branch</dt><dd>{link.defaultBranch}</dd></div>
           <div><dt>Linked</dt><dd>{relativeTime(link.linkedAt)}</dd></div>
           <div><dt>Last synced</dt><dd>{link.lastSyncedAt ? relativeTime(link.lastSyncedAt) : 'never'}</dd></div>
+          {link.branchCount != null && (
+            <div>
+              <dt>Branches</dt>
+              <dd>
+                {link.branchCount}
+                {(link.recentNewBranches || []).length > 0 && (
+                  <span className="fs-muted"> (new: {link.recentNewBranches.map((b) => b.name).join(', ')})</span>
+                )}
+              </dd>
+            </div>
+          )}
           {link.lastSyncSummary && (
             <div>
               <dt>Last sync</dt>
               <dd>
-                {link.lastSyncSummary.commits} commits, {link.lastSyncSummary.prsOpened} PRs opened,{' '}
-                {link.lastSyncSummary.prsMerged} merged
+                {summaryText(link.lastSyncSummary)}
               </dd>
             </div>
           )}

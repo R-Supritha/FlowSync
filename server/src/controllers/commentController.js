@@ -1,5 +1,8 @@
 const mongoose = require('mongoose');
 const Comment = require('../models/Comment');
+const FileAsset = require('../models/FileAsset');
+const { assetView } = require('../utils/fileView');
+const { removeFileAssets } = require('../utils/fileCleanup');
 const Task = require('../models/Task');
 const Workspace = require('../models/Workspace');
 const User = require('../models/User');
@@ -138,8 +141,17 @@ async function listComments(req, res) {
       .populate('author', 'name email')
       .sort({ createdAt: 1 });
 
+    // FR8: every comment carries its attachments.
+    const ids = comments.map((c) => c._id);
+    const files = ids.length ? await FileAsset.find({ comment: { $in: ids } }).sort({ createdAt: 1 }).lean() : [];
+    const filesOf = new Map();
+    files.forEach((f) => filesOf.set(String(f.comment), [...(filesOf.get(String(f.comment)) || []), assetView(f)]));
+
     // Threaded as a flat, ordered list (each item carries parentComment); the client builds the tree.
-    res.json({ success: true, comments });
+    res.json({
+      success: true,
+      comments: comments.map((c) => ({ ...(c.toObject ? c.toObject() : c), files: filesOf.get(String(c._id)) || [] })),
+    });
   } catch (error) {
     serverError(res, 'Failed to fetch comments', error);
   }
@@ -179,6 +191,7 @@ async function deleteComment(req, res) {
 
     // Replies are part of this comment's thread, so they go with it.
     const threadIds = await collectThread(comment._id);
+    await removeFileAssets({ comment: { $in: threadIds } }); // their attachments go too, from the database and the disk
     await Comment.deleteMany({ _id: { $in: threadIds } });
 
     res.json({ success: true, message: 'Comment deleted', deletedCount: threadIds.length });

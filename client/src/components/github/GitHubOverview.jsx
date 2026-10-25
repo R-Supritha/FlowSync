@@ -1,3 +1,4 @@
+import { summaryText } from '../../utils/githubSummary'
 import { useCallback, useEffect, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { GitPullRequest, Link2 } from 'lucide-react'
@@ -92,7 +93,7 @@ export default function GitHubOverview({ compact = false }) {
                             ...prev,
                             [p._id]: { ...state, link: { ...link, lastSyncedAt: res.lastSyncedAt } },
                           }))
-                          alert(`Synced ${res.repo}\n${summary.commits} commits, ${summary.prsOpened} PRs opened, ${summary.prsMerged} merged`)
+                          alert(`Synced ${res.repo}\n${summaryText(summary)}`)
                         } catch {
                           setByProject((prev) => ({ ...prev, [p._id]: byProject[p._id] }))
                           alert('Sync failed — open the project GitHub view for details.')

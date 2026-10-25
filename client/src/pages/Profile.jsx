@@ -1,12 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDispatch } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { Check, GitPullRequest, Link as LinkIcon, Save, User } from 'lucide-react'
 import { profileApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { pushToast } from '../store/uiSlice'
+import { setUser } from '../store/authSlice'
+import { avatarSrc } from '../utils/avatar'
+import Achievements from '../components/Achievements'
 import { formatDate } from '../utils/format'
 import { Avatar, Chip, EmptyState, ErrorState, Field, Spinner } from '../components/ui'
+
+const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+const MAX_PICTURE = 2 * 1024 * 1024
 
 export default function Profile() {
   const dispatch = useDispatch()
@@ -18,6 +24,9 @@ export default function Profile() {
   const [form, setForm] = useState({ name: '', bio: '', avatarUrl: '', githubUsername: '', skills: '' })
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [pictureBusy, setPictureBusy] = useState(false)
+  const [pictureError, setPictureError] = useState('')
+  const fileInput = useRef(null)
 
   async function load() {
     try {
@@ -56,7 +65,6 @@ export default function Profile() {
     const body = {
       name: form.name.trim(),
       bio: form.bio.trim(),
-      avatarUrl: form.avatarUrl.trim(),
       githubUsername: form.githubUsername.trim(),
       skills: form.skills
         .split(',')
@@ -76,10 +84,45 @@ export default function Profile() {
     }
   }
 
+  async function choosePicture(e) {
+    const file = e.target.files && e.target.files[0]
+    e.target.value = '' // so the same file can be chosen again
+    if (!file) return
+    setPictureError('')
+    if (!PICTURE_TYPES.includes(file.type)) return setPictureError('Choose a PNG, JPEG, GIF or WebP picture')
+    if (file.size > MAX_PICTURE) return setPictureError('The picture must be at most 2 MB')
+    setPictureBusy(true)
+    try {
+      const res = await profileApi.uploadAvatar(file)
+      setData((d) => ({ ...d, user: { ...d.user, avatarUrl: res.user.avatarUrl } }))
+      dispatch(setUser({ avatarUrl: res.user.avatarUrl }))
+      dispatch(pushToast('Picture updated', 'success'))
+    } catch (err) {
+      setPictureError(errorMessage(err, 'Could not upload the picture'))
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
+  async function removePicture() {
+    setPictureError('')
+    setPictureBusy(true)
+    try {
+      await profileApi.removeAvatar()
+      setData((d) => ({ ...d, user: { ...d.user, avatarUrl: '' } }))
+      dispatch(setUser({ avatarUrl: '' }))
+      dispatch(pushToast('Picture removed', 'success'))
+    } catch (err) {
+      setPictureError(errorMessage(err, 'Could not remove the picture'))
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
   if (status === 'loading') return <Spinner label="Loading profile…" />
   if (status === 'error') return <ErrorState message={error} onRetry={load} />
 
-  const { user, workspaces, projects } = data
+  const { user, workspaces, projects, achievements } = data
 
   return (
     <div className="page">
@@ -91,12 +134,23 @@ export default function Profile() {
           <div>
             <Field label="Name" htmlFor="pf-name"><input id="pf-name" className="fs-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <Field label="Email" htmlFor="pf-email"><input id="pf-email" className="fs-input" value={user.email} disabled /></Field>
-            <Field label="Avatar URL" htmlFor="pf-avatar">
-              <div className="fs-row" style={{ gap: 8 }}>
-                <input id="pf-avatar" className="fs-input" value={form.avatarUrl} placeholder="https://…" onChange={(e) => setForm({ ...form, avatarUrl: e.target.value })} />
-                <Avatar name={form.avatarUrl ? '' : user.name} src={form.avatarUrl || undefined} size={32} />
+            <div className="field" style={{ marginBottom: 12 }}>
+              <span className="fs-label">Profile picture</span>
+              <div className="fs-row" style={{ gap: 12, alignItems: 'center' }}>
+                <Avatar name={user.name} url={avatarSrc(user.avatarUrl)} size={64} />
+                <div>
+                  <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-label="Choose a picture" hidden onChange={choosePicture} />
+                  <div className="fs-row" style={{ gap: 6 }}>
+                    <button type="button" className="fs-btn small" disabled={pictureBusy} onClick={() => fileInput.current && fileInput.current.click()}>
+                      {pictureBusy ? 'Working…' : user.avatarUrl ? 'Change picture' : 'Upload picture'}
+                    </button>
+                    {user.avatarUrl && <button type="button" className="fs-btn small ghost" disabled={pictureBusy} onClick={removePicture}>Remove picture</button>}
+                  </div>
+                  <span className="fs-muted" style={{ fontSize: 12 }}>PNG, JPEG, GIF or WebP, up to 2 MB.</span>
+                  {pictureError && <p className="fs-error" role="alert" style={{ margin: '4px 0 0' }}>{pictureError}</p>}
+                </div>
               </div>
-            </Field>
+            </div>
             <Field label="GitHub username" htmlFor="pf-gh">
               <input id="pf-gh" className="fs-input" value={form.githubUsername} placeholder="octocat" onChange={(e) => setForm({ ...form, githubUsername: e.target.value })} />
             </Field>
@@ -142,6 +196,8 @@ export default function Profile() {
           </div>
         </form>
       </section>
+
+      <Achievements achievements={achievements} />
 
       <section className="panel">
         <div className="panel-head"><h3>Recent projects ({projects.length})</h3></div>

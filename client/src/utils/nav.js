@@ -4,8 +4,11 @@ export const VIEWS = {
   calendar: 'Calendar',
   activity: 'Activity',
   analytics: 'Analytics',
+  standup: 'Stand-up',
+  sprint: 'Sprint',
   github: 'GitHub',
   milestones: 'Milestones',
+  files: 'Files',
   info: 'Project',
 }
 
@@ -17,6 +20,7 @@ const PAGES = {
   '/teams': { label: 'Teams' },
   '/members': { label: 'Members' },
   '/calendar': { label: 'Calendar' },
+  '/chat': { label: 'Chat' },
   '/notifications': { label: 'Notifications' },
   '/analytics': { label: 'Analytics' },
   '/github': { label: 'GitHub' },
@@ -43,12 +47,15 @@ export function routeMeta(pathname, projects = []) {
   return null
 }
 
-// The four project views listed in the sidebar tree.
+// The project views listed in the sidebar tree.
 export const PROJECT_VIEWS = [
   { id: 'board', label: 'Board' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'milestones', label: 'Milestones' },
+  { id: 'files', label: 'Files' },
   { id: 'activity', label: 'Activity' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'standup', label: 'Stand-up' },
+  { id: 'sprint', label: 'Sprint' },
   { id: 'github', label: 'GitHub' },
 ]

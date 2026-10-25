@@ -31,7 +31,8 @@ api.interceptors.response.use(
 
 export function errorMessage(error, fallback = 'Something went wrong') {
   if (!error) return fallback
-  if (error.response?.status === 429) {
+  // A 429 from our own endpoints says exactly what to wait for; the general limiter sends no message.
+  if (error.response?.status === 429 && !error.response?.data?.message) {
     return 'Too many requests. Please wait a few minutes and try again.'
   }
   if (error.response?.data?.message) return error.response.data.message

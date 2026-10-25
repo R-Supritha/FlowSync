@@ -16,7 +16,10 @@ const TYPE_ICON = {
   mention: 'Mentioned',
   comment_reply: 'Reply',
   deadline_approaching: 'Deadline',
+  deadline_overdue: 'Overdue',
   status_changed: 'Status',
+  pr_opened: 'Pull request',
+  pr_merged: 'Merged',
 }
 
 export default function NotificationBell() {
@@ -39,6 +42,8 @@ export default function NotificationBell() {
         const target = link.project ? `/projects/${link.project}/board` : '/'
         navigate(target)
         dispatch(fetchNotifications({ limit: 8 }))
+      } else if (link.channel) {
+        navigate(`/chat?c=${link.channel}`)
       } else {
         navigate('/notifications')
       }

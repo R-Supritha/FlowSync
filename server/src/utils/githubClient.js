@@ -1,4 +1,5 @@
-const API = 'https://api.github.com';
+// GITHUB_API_URL only exists so the automatic checks can talk to a fake GitHub.
+const apiBase = () => process.env.GITHUB_API_URL || 'https://api.github.com';
 
 class GithubError extends Error {
   constructor(status, message) {
@@ -9,7 +10,7 @@ class GithubError extends Error {
 }
 
 async function github(path, token, params) {
-  const url = new URL(API + path);
+  const url = new URL(apiBase() + path);
   Object.entries(params || {}).forEach(([key, value]) => {
     if (value !== undefined) url.searchParams.set(key, String(value));
   });
@@ -67,6 +68,21 @@ async function listCommits(token, owner, name, since) {
   }
 }
 
+// One commit WITH its changed files (the list above does not say what a commit changed).
+function getCommit(token, owner, name, sha) {
+  return github(`${repoPath(owner, name)}/commits/${encodeURIComponent(sha)}`, token);
+}
+
+// One pull request WITH its change counts (changed_files, additions, deletions).
+function getPull(token, owner, name, number) {
+  return github(`${repoPath(owner, name)}/pulls/${encodeURIComponent(number)}`, token);
+}
+
+// The files of one pull request (first 100), used to tell empty files from real changes.
+function listPullFiles(token, owner, name, number) {
+  return github(`${repoPath(owner, name)}/pulls/${encodeURIComponent(number)}/files`, token, { per_page: 100 });
+}
+
 function listPulls(token, owner, name) {
   return github(`${repoPath(owner, name)}/pulls`, token, {
     state: 'all',
@@ -76,4 +92,24 @@ function listPulls(token, owner, name) {
   });
 }
 
-module.exports = { GithubError, getRepo, listCommits, listPulls };
+// FR13. Issues updated since `since`. GitHub's issue list also contains pull requests; those are dropped here.
+async function listIssues(token, owner, name, since) {
+  const items = await github(`${repoPath(owner, name)}/issues`, token, {
+    state: 'all',
+    since: since.toISOString(),
+    sort: 'updated',
+    direction: 'desc',
+    per_page: 30,
+  });
+  return (items || []).filter((i) => i && !i.pull_request);
+}
+
+function listReleases(token, owner, name) {
+  return github(`${repoPath(owner, name)}/releases`, token, { per_page: 10 });
+}
+
+function listBranches(token, owner, name) {
+  return github(`${repoPath(owner, name)}/branches`, token, { per_page: 100 });
+}
+
+module.exports = { GithubError, getRepo, listCommits, listPulls, getCommit, getPull, listPullFiles, listIssues, listReleases, listBranches };

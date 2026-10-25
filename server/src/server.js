@@ -27,21 +27,28 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const githubRoutes = require('./routes/githubRoutes');
 const ocrRoutes = require('./routes/ocrRoutes');
 const aiProjectRoutes = require('./routes/aiProjectRoutes');
+const aiAssistRoutes = require('./routes/aiAssistRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+const { mountAvatars } = require('./config/avatar');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
 
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+mountAvatars(app); // profile pictures at /avatars (FR21)
 app.use('/api', activityRoutes);
 app.use('/api', contributionRoutes);
 app.use('/api', presenceRoutes);
 app.use('/api', analyticsRoutes);
+app.use('/api', chatRoutes);
 
+// 100 requests per 15 minutes per computer by default. The app also checks notifications, presence and
+// health in the background, so set RATE_LIMIT=1000 in server/.env while developing.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 100,
+  limit: Number(process.env.RATE_LIMIT) || 100,
 });
 
 app.use('/api', apiLimiter);
@@ -71,10 +78,26 @@ app.use('/api', profileRoutes);
 app.use('/api', githubRoutes);
 app.use('/api', ocrRoutes);
 app.use('/api', aiProjectRoutes);
+app.use('/api', aiAssistRoutes);
 app.use('/api', settingsRoutes);
 
 app.get('/api/test-protected', protect, (req, res) => {
   res.json({ success: true, message: 'You are authenticated', user: req.user });
+});
+
+// Anything that reached this point matched no route: answer in the same JSON shape as every other error.
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: `Route not found: ${req.method} ${req.originalUrl}` });
+});
+
+// Last-resort error handler (bad JSON body, errors passed to next(), anything unexpected).
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, message: 'Request body is not valid JSON' });
+  }
+  console.error(err);
+  res.status(err.status || 500).json({ success: false, message: 'Something went wrong on the server' });
 });
 
 const PORT = process.env.PORT || 5000;
