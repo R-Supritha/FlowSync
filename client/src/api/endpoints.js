@@ -228,7 +228,8 @@ export const aiAssistApi = {
 
 // FR26 channels, FR27 live messaging.
 export const chatApi = {
-  channels: (workspaceId) => api.get(`/workspaces/${workspaceId}/channels`).then(data),
+  channels: (workspaceId, params) => api.get(`/workspaces/${workspaceId}/channels`, { params }).then(data),
+  taskRefs: (workspaceId, refs) => api.post(`/workspaces/${workspaceId}/chat/task-refs`, { refs }).then(data),
   createChannel: (workspaceId, body) => api.post(`/workspaces/${workspaceId}/channels`, body).then(data),
   updateChannel: (channelId, body) => api.patch(`/channels/${channelId}`, body).then(data),
   removeChannel: (channelId) => api.delete(`/channels/${channelId}`).then(data),

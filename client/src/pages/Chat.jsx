@@ -4,11 +4,14 @@ import { useSearchParams } from 'react-router-dom'
 import { chatApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { channelCleared, channelRead, fetchChannels, messageArrived, removeChannel, upsertChannel } from '../store/chatSlice'
-import { pushToast } from '../store/uiSlice'
+import { openTask, pushToast } from '../store/uiSlice'
 import useChatStream from '../hooks/useChatStream'
 import MessageItem, { MAX_TEXT } from '../components/chat/MessageItem'
 import NewChannelDialog from '../components/chat/NewChannelDialog'
 import EditChannelDialog from '../components/chat/EditChannelDialog'
+import CreateTaskDialog from '../components/chat/CreateTaskDialog'
+import { mentionMatches, refsIn } from '../utils/chatText'
+import { taskRef } from '../utils/format'
 import { ConfirmDialog, ErrorState, Spinner } from '../components/ui'
 
 const POLL_MS = 15000 // only used while the live stream is down
@@ -21,6 +24,7 @@ export default function ChatPage() {
   const workspaceId = useSelector((s) => s.workspaces.currentId)
   const me = useSelector((s) => s.auth.user && s.auth.user.id)
   const { channels, canPost, canManage, status, error } = useSelector((s) => s.chat)
+  const people = useSelector((s) => s.workspaces.people[s.workspaces.currentId]) || {}
 
   const channelId = params.get('c')
   const channel = channels.find((c) => c._id === channelId) || null
@@ -33,6 +37,12 @@ export default function ChatPage() {
   const [editing, setEditing] = useState(false)
   const [toClear, setToClear] = useState(false)
   const [toRemove, setToRemove] = useState(false)
+  const [toArchive, setToArchive] = useState(false)
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const [archived, setArchived] = useState({ status: 'idle', items: [] })
+  const [creating, setCreating] = useState(null) // the message being turned into a task
+  const [refMap, setRefMap] = useState({}) // 'fs-13c22c' -> the task, or null when there is none
+  const asked = useRef(new Set())
   const listRef = useRef(null)
   const stick = useRef(true)
   const activeRef = useRef(null)
@@ -62,6 +72,8 @@ export default function ChatPage() {
       .messages(id, { limit: 50 })
       .then((res) => {
         if (!alive) return
+        asked.current = new Set() // look the references of this channel up afresh (titles and statuses may have changed)
+        setRefMap({})
         setView({ channelId: id, items: res.messages, hasMore: res.hasMore, status: 'ready', error: '' })
         return chatApi.markRead(id).then(() => dispatch(channelRead(id)))
       })
@@ -72,6 +84,48 @@ export default function ChatPage() {
       alive = false
     }
   }, [channel && channel._id, reloadKey, dispatch]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // FS-xxxxxx references on screen become task chips: ask the server about the new ones, once
+  useEffect(() => {
+    if (!workspaceId) return undefined
+    const wanted = []
+    for (const m of view.items) {
+      if (m.deleted) continue
+      for (const r of refsIn(m.text)) if (!asked.current.has(r) && !wanted.includes(r)) wanted.push(r)
+    }
+    if (wanted.length === 0) return undefined
+    const batch = wanted.slice(0, 30)
+    batch.forEach((r) => asked.current.add(r))
+    let alive = true
+    chatApi
+      .taskRefs(workspaceId, batch)
+      .then((res) => {
+        if (!alive) return
+        setRefMap((prev) => {
+          const next = { ...prev }
+          batch.forEach((r) => { next[r] = null })
+          res.tasks.forEach((t) => { next[t.ref.toLowerCase()] = t })
+          return next
+        })
+      })
+      .catch(() => batch.forEach((r) => asked.current.delete(r)))
+    return () => {
+      alive = false
+    }
+  }, [view.items, workspaceId])
+
+  // the list of archived channels (Admin or Manager), kept fresh while it is open
+  useEffect(() => {
+    if (!archivedOpen || !workspaceId || !canManage) return undefined
+    let alive = true
+    chatApi
+      .channels(workspaceId, { archived: true })
+      .then((res) => alive && setArchived({ status: 'ready', items: res.channels }))
+      .catch(() => alive && setArchived({ status: 'error', items: [] }))
+    return () => {
+      alive = false
+    }
+  }, [archivedOpen, workspaceId, canManage, channels.length])
 
   // keep the newest message in view, unless you scrolled up to read older ones
   useEffect(() => {
@@ -169,6 +223,35 @@ export default function ChatPage() {
     }
   }
 
+  async function archiveThisChannel() {
+    const id = channel._id
+    setToArchive(false)
+    try {
+      await chatApi.updateChannel(id, { archived: true })
+      dispatch(removeChannel(id)) // the page then falls back to #general by itself
+      dispatch(pushToast('Channel archived. You can restore it under "Archived channels".', 'success'))
+    } catch (e) {
+      dispatch(pushToast(errorMessage(e, 'Could not archive the channel'), 'error'))
+    }
+  }
+
+  async function restore(c) {
+    try {
+      await chatApi.updateChannel(c._id, { archived: false })
+      setArchived((a) => ({ ...a, items: a.items.filter((x) => x._id !== c._id) }))
+      dispatch(fetchChannels(workspaceId))
+      dispatch(pushToast(`#${c.name} is back`, 'success'))
+    } catch (e) {
+      dispatch(pushToast(errorMessage(e, 'Could not restore the channel'), 'error'))
+    }
+  }
+
+  function taskCreated(task, sent) {
+    setRefMap((prev) => ({ ...prev, [taskRef(task._id)]: { ref: taskRef(task._id), _id: task._id, title: task.title, status: task.status, project: task.project } }))
+    if (sent) addMessage(sent)
+    dispatch(pushToast(`Task ${taskRef(task._id).toUpperCase()} created`, 'success'))
+  }
+
   async function react(message, emoji) {
     try {
       const res = await chatApi.react(message._id, emoji)
@@ -252,6 +335,23 @@ export default function ChatPage() {
             </li>
           ))}
         </ul>
+        {canManage && (
+          <div style={{ marginTop: 10 }}>
+            <button type="button" className="fs-btn small ghost" aria-expanded={archivedOpen} onClick={() => setArchivedOpen((o) => !o)}>Archived channels</button>
+            {archivedOpen && (
+              <ul className="list" aria-label="Archived channels">
+                {archived.status !== 'ready' && <li className="fs-muted">{archived.status === 'error' ? 'Could not load them' : 'Loading…'}</li>}
+                {archived.status === 'ready' && archived.items.length === 0 && <li className="fs-muted">No archived channels</li>}
+                {archived.items.map((c) => (
+                  <li key={c._id} className="fs-row" style={{ justifyContent: 'space-between', gap: 6 }}>
+                    <span># {c.name}</span>
+                    <button type="button" className="fs-btn small" aria-label={`Restore ${c.name}`} onClick={() => restore(c)}>Restore</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </nav>
 
       <section className="chat-main" aria-label={channel ? `Channel ${channel.name}` : 'Chat'}>
@@ -267,6 +367,7 @@ export default function ChatPage() {
                 <div className="fs-row" style={{ gap: 4 }}>
                   {channel.kind === 'custom' && <button type="button" className="fs-btn small ghost" aria-label="Edit channel" onClick={() => setEditing(true)}>Edit</button>}
                   <button type="button" className="fs-btn small ghost" aria-label="Clear chat" onClick={() => setToClear(true)}>Clear chat</button>
+                  {channel.kind === 'custom' && <button type="button" className="fs-btn small ghost" aria-label="Archive channel" onClick={() => setToArchive(true)}>Archive</button>}
                   {channel.kind === 'custom' && <button type="button" className="fs-btn small ghost" aria-label="Delete channel" onClick={() => setToRemove(true)}>Delete channel</button>}
                 </div>
               )}
@@ -289,9 +390,14 @@ export default function ChatPage() {
                         canEdit={canPost && m.author._id === me}
                         canDelete={m.author._id === me || canManage}
                         canReact={canPost}
+                        canCreateTask={canPost && channel.kind === 'project'}
+                        people={people}
+                        taskByRef={refMap}
                         onEdit={edit}
                         onDelete={setToDelete}
                         onReact={react}
+                        onCreateTask={setCreating}
+                        onOpenTask={(t) => dispatch(openTask(t._id))}
                       />
                     ))}
                   </ul>
@@ -310,6 +416,15 @@ export default function ChatPage() {
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={onComposerKey}
                 />
+                {mentionMatches(text, people).length > 0 && (
+                  <div className="fs-row" role="listbox" aria-label="Mention suggestions" style={{ flexWrap: 'wrap', gap: 4, margin: '4px 0' }}>
+                    {mentionMatches(text, people).map((p) => (
+                      <button key={p.id} type="button" role="option" className="fs-btn small" onClick={() => setText((t) => t.replace(/@(\w*)$/, `@${p.name.split(/\s+/)[0]} `))}>
+                        @{p.name.split(/\s+/)[0]}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="fs-row" style={{ justifyContent: 'space-between' }}>
                   <span className={tooLong ? 'fs-error' : 'fs-muted'}>
                     {text.length > MAX_TEXT - 500 ? `${text.length}/${MAX_TEXT}` : 'Enter to send, Shift+Enter for a new line'}
@@ -337,6 +452,16 @@ export default function ChatPage() {
         />
       )}
       {editing && channel && <EditChannelDialog channel={channel} onClose={() => setEditing(false)} onSaved={(c) => dispatch(upsertChannel(c))} />}
+      {toArchive && channel && (
+        <ConfirmDialog
+          title="Archive this channel?"
+          message={`#${channel.name} will disappear from the list for everyone. Its messages are kept, and an Admin or Manager can restore it under "Archived channels".`}
+          confirmLabel="Archive"
+          onCancel={() => setToArchive(false)}
+          onConfirm={archiveThisChannel}
+        />
+      )}
+      {creating && channel && <CreateTaskDialog message={creating} channel={channel} onClose={() => setCreating(null)} onCreated={taskCreated} />}
       {toClear && channel && (
         <ConfirmDialog
           title="Clear this chat?"

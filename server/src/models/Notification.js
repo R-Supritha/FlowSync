@@ -15,6 +15,7 @@ const notificationSchema = new mongoose.Schema(
       project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
       task: { type: mongoose.Schema.Types.ObjectId, ref: 'Task' },
       comment: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment' },
+      channel: { type: mongoose.Schema.Types.ObjectId, ref: 'Channel' }, // a chat mention opens this channel
     },
     isRead: { type: Boolean, default: false },
     // Set on reminders that must be sent only once (for example one per task and due date).

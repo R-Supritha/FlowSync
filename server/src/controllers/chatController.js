@@ -4,6 +4,8 @@ const Channel = require('../models/Channel');
 const Message = require('../models/Message');
 const ChannelRead = require('../models/ChannelRead');
 const Project = require('../models/Project');
+const Task = require('../models/Task');
+const { notifyChatMentions } = require('../utils/chatMentions');
 const { isManagerRole, canWrite, getWorkspaceRole, serverError } = require('../utils/access');
 const { publish, subscribe } = require('../utils/chatBus');
 
@@ -12,6 +14,7 @@ const PAGE = 50;
 const MAX_PAGE = 100;
 const PING_MS = 25000;
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const MAX_REFS = 30;
 
 function fail(res, status, message) {
   res.status(status).json({ success: false, message });
@@ -128,6 +131,13 @@ async function listChannels(req, res) {
     const workspaceId = req.params.workspaceId;
     const role = await workspaceRole(req, res, workspaceId);
     if (!role) return;
+
+    // FR26: the channels that were archived, so they can be restored (Admin or Manager)
+    if (req.query.archived === 'true') {
+      if (!isManagerRole(role)) return fail(res, 403, 'Only Admin or Manager can see archived channels');
+      const all = await Channel.find({ workspace: workspaceId });
+      return res.json({ success: true, channels: all.filter((c) => c.kind === 'custom' && c.isArchived).map((c) => presentChannel(c)) });
+    }
 
     const channels = await ensureChannels(workspaceId, req.user.id);
     const ids = channels.map((c) => c._id);
@@ -303,6 +313,8 @@ async function sendMessage(req, res) {
 
     await touchRead(req.user.id, channel._id);
     publish(String(channel.workspace), { type: 'message', message: out });
+    // FR28: tell the people who were @mentioned (never stops the message from being sent)
+    notifyChatMentions({ text: parsed.value, channel, actorId: req.user.id, actorName: out.author.name }).catch(() => {});
     return res.status(201).json({ success: true, message: out });
   } catch (error) {
     return serverError(res, 'Failed to send the message', error);
@@ -338,6 +350,40 @@ async function editMessage(req, res) {
     return res.json({ success: true, message: out });
   } catch (error) {
     return serverError(res, 'Failed to edit the message', error);
+  }
+}
+
+// POST /workspaces/:workspaceId/chat/task-refs   body: { refs: ['FS-13c22c', '13c22c', ...] }
+// FR29: the task behind each FS-xxxxxx reference seen in the chat, so it can be shown as a chip.
+// Only unambiguous references of active tasks in THIS workspace are answered; anything else is simply left out.
+async function lookupTaskRefs(req, res) {
+  try {
+    const workspaceId = req.params.workspaceId;
+    const role = await workspaceRole(req, res, workspaceId);
+    if (!role) return;
+
+    const raw = req.body && req.body.refs;
+    if (!Array.isArray(raw) || raw.length > MAX_REFS) return fail(res, 400, `refs must be a list of at most ${MAX_REFS} task references`);
+    const wanted = new Set();
+    for (const r of raw) {
+      const m = /^(?:fs-)?([0-9a-f]{6})$/i.exec(String(r).trim());
+      if (m) wanted.add(m[1].toLowerCase());
+    }
+    if (wanted.size === 0) return res.json({ success: true, tasks: [] });
+
+    const tasks = await Task.find({ workspace: workspaceId, isArchived: false }).select('title status project').limit(5000).lean();
+    const bySuffix = new Map();
+    for (const t of tasks) {
+      const key = String(t._id).slice(-6).toLowerCase();
+      if (wanted.has(key)) bySuffix.set(key, [...(bySuffix.get(key) || []), t]);
+    }
+    const found = [];
+    for (const [key, list] of bySuffix) {
+      if (list.length === 1) found.push({ ref: `FS-${key}`, _id: String(list[0]._id), title: list[0].title, status: list[0].status, project: String(list[0].project) });
+    }
+    return res.json({ success: true, tasks: found });
+  } catch (error) {
+    return serverError(res, 'Failed to look up the task references', error);
   }
 }
 
@@ -443,6 +489,6 @@ async function stream(req, res) {
 }
 
 module.exports = {
-  listChannels, createChannel, updateChannel, clearChannel, deleteChannel, listMessages, sendMessage, editMessage, deleteMessage, reactToMessage, markRead, stream, ensureChannels, presentMessage, REACTIONS,
+  listChannels, createChannel, updateChannel, clearChannel, deleteChannel, listMessages, sendMessage, editMessage, deleteMessage, reactToMessage, lookupTaskRefs, markRead, stream, ensureChannels, presentMessage, REACTIONS,
   slugify, parseChannelName, parseText, MAX_TEXT,
 };

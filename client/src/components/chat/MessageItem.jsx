@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Avatar } from '../ui'
 import { avatarSrc } from '../../utils/avatar'
 import { formatDate } from '../../utils/format'
+import { isPerson, splitChatText } from '../../utils/chatText'
 
 export const MAX_TEXT = 4000
 const REACTIONS = ['👍', '❤️', '🎉', '👀']
@@ -13,8 +14,29 @@ function chatTime(value) {
   return d.toDateString() === new Date().toDateString() ? time : `${formatDate(d)}, ${time}`
 }
 
-// One message. The text is shown as plain text (React never turns it into HTML).
-export default function MessageItem({ message, mine, me, canEdit, canDelete, canReact = false, onEdit, onDelete, onReact }) {
+// The text of a message, shown as plain text (React never turns it into HTML). @names of people in the workspace are
+// highlighted, and FS-xxxxxx references of known tasks become chips that open the task. Anything else stays as typed.
+function RichText({ text, people, taskByRef, onOpenTask }) {
+  return splitChatText(text).map((part, i) => {
+    if (part.type === 'mention' && isPerson(part.value.slice(1), people)) {
+      return <span key={i} className="chat-mention" style={{ color: 'var(--accent)', fontWeight: 600 }}>{part.value}</span>
+    }
+    if (part.type === 'ref') {
+      const task = taskByRef && taskByRef[part.value.toLowerCase()]
+      if (task) {
+        return (
+          <button key={i} type="button" className="fs-btn small chat-task-chip" aria-label={`Open task ${part.value.toUpperCase()}: ${task.title}`} onClick={() => onOpenTask(task)}>
+            <span className="task-ref">{part.value.toUpperCase()}</span> {task.title} <span className="badge">{task.status}</span>
+          </button>
+        )
+      }
+    }
+    return part.value
+  })
+}
+
+// One message.
+export default function MessageItem({ message, mine, me, canEdit, canDelete, canReact = false, canCreateTask = false, people, taskByRef, onEdit, onDelete, onReact, onCreateTask, onOpenTask }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -75,7 +97,7 @@ export default function MessageItem({ message, mine, me, canEdit, canDelete, can
             </div>
           </div>
         ) : (
-          <div className="chat-text">{message.text}</div>
+          <div className="chat-text"><RichText text={message.text} people={people} taskByRef={taskByRef} onOpenTask={onOpenTask} /></div>
         )}
 
         {!message.deleted && (message.reactions || []).length > 0 && (
@@ -100,11 +122,12 @@ export default function MessageItem({ message, mine, me, canEdit, canDelete, can
           </div>
         )}
 
-        {!message.deleted && !editing && (canEdit || canDelete || canReact) && (
+        {!message.deleted && !editing && (canEdit || canDelete || canReact || canCreateTask) && (
           <div className="chat-msg-actions">
             {canReact && REACTIONS.map((emoji) => (
               <button key={emoji} type="button" className="fs-btn small ghost" aria-label={`Add reaction ${emoji}`} onClick={() => onReact(message, emoji)}>{emoji}</button>
             ))}
+            {canCreateTask && !message.bot && <button type="button" className="fs-btn small ghost" aria-label="Create task from message" onClick={() => onCreateTask(message)}>Create task</button>}
             {mine && canEdit && <button type="button" className="fs-btn small ghost" aria-label="Edit message" onClick={startEdit}>Edit</button>}
             {canDelete && <button type="button" className="fs-btn small ghost" aria-label="Delete message" onClick={() => onDelete(message)}>Delete</button>}
           </div>

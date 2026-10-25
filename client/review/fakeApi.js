@@ -14,7 +14,7 @@ const BADGES_RESPONSE = {
   ],
 }
 
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false, withCommentFiles = false, githubExtras = 'none', botMessage = false, seedReactions = false } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false, withCommentFiles = false, githubExtras = 'none', botMessage = false, seedReactions = false, chatLinks = false, chatMention = false } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -66,6 +66,7 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       { _id: 'cf2', originalName: 'mockup.png', mimetype: 'image/png', size: 5 * 1024 * 1024, uploadedBy: ids.other, createdAt: iso(-1), comment: 'c1' },
     )
   }
+  if (chatMention) state.notifications.push({ _id: 'n9', type: 'mention', message: 'Test User Two mentioned you in #general', isRead: false, createdAt: iso(-0.01), link: { workspace: ids.ws, channel: 'ch-general' } })
   if (hasPicture) state.profile.avatarUrl = '/avatars/me-0123456789abcdef.png'
   if (moreNotifications) {
     state.notifications.push(
@@ -375,11 +376,22 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
         state.messages.push(chatMsg('ch-general', me, 'Thanks!'))
         state.messages.push(chatMsg('ch-general', other, 'Standup at 10'))
       }
+      if (chatLinks) {
+        state.messages.push(chatMsg('ch-general', other, 'Please review FS-0140ad and also FS-ffffff today'))
+        state.messages.push(chatMsg('ch-general', other, '@Sunitha can you check this? cc @nobody'))
+        state.messages.push(chatMsg('ch-proj', other, 'Fix the login bug on mobile'))
+      }
       if (seedReactions) state.messages.find((x) => x.text === 'Welcome everyone').reactions = [{ emoji: '👍', users: [ids.other] }, { emoji: '🎉', users: [ids.me, ids.other] }]
       if (botMessage) state.messages.push({ _id: 'mbot1', channel: 'ch-general', bot: true, author: { _id: 'flowsync-bot', name: 'FlowSync' }, text: '✅ "Build login page" is Done', deleted: false, reactions: [], editedAt: null, createdAt: iso(-0.001) })
     }
     const isManagerRole = role === 'Admin' || role === 'Manager'
-    if (url === `/workspaces/${W}/channels` && method === 'get') return ok({ success: true, channels: JSON.parse(JSON.stringify(state.channels)), canPost: role !== 'Viewer', canManage: isManagerRole })
+    if (url === `/workspaces/${W}/channels` && method === 'get') {
+      if (params.archived) {
+        if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can see archived channels'))
+        return ok({ success: true, channels: JSON.parse(JSON.stringify(state.channels.filter((c) => c.kind === 'custom' && c.archived))) })
+      }
+      return ok({ success: true, channels: JSON.parse(JSON.stringify(state.channels.filter((c) => !c.archived))), canPost: role !== 'Viewer', canManage: isManagerRole })
+    }
     if (url === `/workspaces/${W}/channels` && method === 'post') {
       if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can create channels'))
       const name = String(body.name || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/^#/, '')
@@ -412,6 +424,17 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       state.messages.push(msg)
       return ok({ success: true, message: msg }, 201)
     }
+    if (url === `/workspaces/${W}/chat/task-refs` && method === 'post') {
+      const found = []
+      for (const r of body.refs || []) {
+        const hit = /^(?:fs-)?([0-9a-f]{6})$/i.exec(String(r))
+        if (!hit) continue
+        const key = hit[1].toLowerCase()
+        const list = state.tasks.filter((t) => t._id.slice(-6) === key && !t.isArchived)
+        if (list.length === 1) found.push({ ref: `FS-${key}`, _id: list[0]._id, title: list[0].title, status: list[0].status, project: P })
+      }
+      return ok({ success: true, tasks: found })
+    }
     mm = m(/^\/messages\/([\w-]+)\/reactions$/)
     if (mm && method === 'post') {
       const msg = state.messages.find((x) => x._id === mm[1])
@@ -440,7 +463,8 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
         c.name = name
       }
       if (body.description !== undefined) c.description = String(body.description).trim()
-      return ok({ success: true, channel: JSON.parse(JSON.stringify(c)), archived: false })
+      if (body.archived !== undefined) c.archived = Boolean(body.archived)
+      return ok({ success: true, channel: JSON.parse(JSON.stringify(c)), archived: Boolean(c.archived) })
     }
     if (mm && method === 'delete') {
       if (!isManagerRole) return fail(err(403, 'Only Admin or Manager can delete channels'))

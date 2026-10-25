@@ -39,6 +39,8 @@ export default function Notifications() {
     const link = n.link || {}
     if (link.task) {
       dispatch(openTask(link.task))
+    } else if (link.channel) {
+      navigate(`/chat?c=${link.channel}`)
     } else if (link.project) {
       navigate(`/projects/${link.project}/board`)
     } else {
