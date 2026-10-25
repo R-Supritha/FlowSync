@@ -237,6 +237,7 @@ export const chatApi = {
   send: (channelId, text) => api.post(`/channels/${channelId}/messages`, { text }).then(data),
   edit: (messageId, text) => api.patch(`/messages/${messageId}`, { text }).then(data),
   remove: (messageId) => api.delete(`/messages/${messageId}`).then(data),
+  react: (messageId, emoji) => api.post(`/messages/${messageId}/reactions`, { emoji }).then(data),
   markRead: (channelId) => api.post(`/channels/${channelId}/read`).then(data),
   // Server-Sent Events, read with fetch() so the JWT stays in the Authorization header.
   streamUrl: (workspaceId) => {

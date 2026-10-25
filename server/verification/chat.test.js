@@ -377,3 +377,79 @@ test('ACCESS: a person added to the workspace later can open every channel, incl
   db.projects.push({ _id: 'p-later', workspace: WS, name: 'Created Later', isArchived: false });   // a project made after they joined
   assert.deepEqual((await call('GET', `/workspaces/${WS}/channels`)).data.channels.map((c) => c.name), ['general', 'created-later', 'library-management-system']);
 });
+
+// ================================================================ reactions (FR28) and messages from FlowSync itself (FR30)
+const sendAs = async (channelId, text, who = 'u1') => (await call('POST', `/channels/${channelId}/messages`, { text }, who)).data.message;
+const botMessage = (channelId, text = '✅ "Login page" is Done', over = {}) => {
+  const m = withSave(db.messages, { _id: nextId(), channel: channelId, workspace: WS, bot: true, botKind: 'task_done', text, createdAt: new Date(), ...over });
+  db.messages.push(m); return m;
+};
+
+test('react: a click adds your reaction, a second click takes it back, and different people add up', async () => {
+  const g = await general(); const m = await sendAs(g._id, 'ship it');
+  assert.deepEqual(m.reactions, []);
+  const a = await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' }, 'u1');
+  assert.equal(a.status, 200); assert.equal(a.data.reacted, true); assert.deepEqual(a.data.message.reactions, [{ emoji: '👍', users: ['u1'] }]);
+  const b = await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' }, 'u2');
+  assert.deepEqual(b.data.message.reactions, [{ emoji: '👍', users: ['u1', 'u2'] }]);
+  await call('POST', `/messages/${m._id}/reactions`, { emoji: '❤️' }, 'u2');
+  const history = (await call('GET', `/channels/${g._id}/messages`)).data.messages[0];
+  assert.deepEqual(history.reactions, [{ emoji: '👍', users: ['u1', 'u2'] }, { emoji: '❤️', users: ['u2'] }]);   // also shown when the history is loaded
+  const off = await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' }, 'u1');
+  assert.equal(off.data.reacted, false); assert.deepEqual(off.data.message.reactions, [{ emoji: '👍', users: ['u2'] }, { emoji: '❤️', users: ['u2'] }]);
+  const gone = await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' }, 'u2');                      // the last person takes it back: the emoji disappears
+  assert.deepEqual(gone.data.message.reactions, [{ emoji: '❤️', users: ['u2'] }]);
+  for (const emoji of ['🎉', '👀']) assert.equal((await call('POST', `/messages/${m._id}/reactions`, { emoji }, 'u1')).status, 200);
+});
+test('react: only the four emojis, only people who can post, never on deleted messages, never across workspaces', async () => {
+  const g = await general(); const m = await sendAs(g._id, 'hello');
+  for (const emoji of ['😂', '', 'thumbs', 5, undefined, '<script>']) {
+    const r = await call('POST', `/messages/${m._id}/reactions`, { emoji });
+    assert.equal(r.status, 400, String(emoji)); assert.match(r.data.message, /emoji must be one of/);
+  }
+  assert.equal((await call('POST', `/messages/${m._id}/reactions`, {})).status, 400);
+  role = 'Viewer'; assert.equal((await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' })).status, 403);
+  role = null; assert.equal((await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' })).status, 404);
+  role = 'Admin';
+  assert.equal((await call('POST', '/messages/abc/reactions', { emoji: '👍' })).status, 400);
+  await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' });
+  await call('DELETE', `/messages/${m._id}`);
+  const late = await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' });
+  assert.equal(late.status, 400); assert.match(late.data.message, /was deleted/);
+  const shown = (await call('GET', `/channels/${g._id}/messages`)).data.messages[0];
+  assert.deepEqual(shown.reactions, []);                                                                        // a deleted message shows no reactions
+});
+test('react: reactions arrive live for everyone, and a person is limited to 30 per 10 seconds', async () => {
+  const g = await general(); const m = await sendAs(g._id, 'live reaction');
+  const s = await openStream(WS); await s.waitFor('event: ready');
+  await call('POST', `/messages/${m._id}/reactions`, { emoji: '🎉' });
+  await s.waitFor('event: message_reacted'); await s.waitFor('🎉');
+  s.close();
+  for (let i = 0; i < 29; i += 1) assert.equal((await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' })).status, 200, String(i));
+  const r = await call('POST', `/messages/${m._id}/reactions`, { emoji: '👍' });
+  assert.equal(r.status, 429); assert.match(r.data.message, /reacting too fast/);
+});
+test('bot messages: shown as FlowSync, flagged as bot, counted as unread, and nobody edits them', async () => {
+  const proj = (await channelsOf()).find((c) => c.kind === 'project');
+  user = 'u2'; await channelsOf();                                                        // u2 opens the chat: nothing unread yet
+  botMessage(proj._id, '✅ "Login page" is Done', { createdAt: new Date(Date.now() + 5000) });
+  const row = (await channelsOf()).find((c) => c.kind === 'project');
+  assert.equal(row.unread, 1);
+  const list = (await call('GET', `/channels/${proj._id}/messages`)).data.messages;
+  assert.deepEqual(list[0].author, { _id: 'flowsync-bot', name: 'FlowSync' }); assert.equal(list[0].bot, true); assert.equal(list[0].text, '✅ "Login page" is Done');
+  const human = await sendAs(proj._id, 'a person writes', 'u2');
+  assert.ok(!('bot' in human));                                                          // people's messages are not flagged
+  for (const who of ['u1', 'u2']) {
+    const r = await call('PATCH', `/messages/${list[0]._id}`, { text: 'forged' }, who);
+    assert.equal(r.status, 403); assert.match(r.data.message, /only edit your own/);
+  }
+  assert.equal(db.messages.find((m) => String(m._id) === list[0]._id).text, '✅ "Login page" is Done');
+  assert.equal((await call('POST', `/messages/${list[0]._id}/reactions`, { emoji: '👍' }, 'u2')).status, 200);   // people can react to it
+});
+test('bot messages: an Admin or Manager can delete them, an ordinary member cannot', async () => {
+  const proj = (await channelsOf()).find((c) => c.kind === 'project'); const b = botMessage(proj._id);
+  role = 'Member'; assert.equal((await call('DELETE', `/messages/${b._id}`, undefined, 'u2')).status, 403);
+  role = 'Manager'; assert.equal((await call('DELETE', `/messages/${b._id}`, undefined, 'u1')).status, 200);
+  const shown = (await call('GET', `/channels/${proj._id}/messages`)).data.messages[0];
+  assert.equal(shown.deleted, true); assert.equal(shown.text, '');
+});

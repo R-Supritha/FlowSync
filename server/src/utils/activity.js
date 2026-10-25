@@ -1,3 +1,4 @@
+const { postBotMessage } = require('./chatBot');
 const ActivityLog = require('../models/ActivityLog');
 const Task = require('../models/Task');
 const Comment = require('../models/Comment');
@@ -121,6 +122,8 @@ async function logActivity({ workspace, project, actor, type, message, task, tas
 function logTaskStatusChange({ task, project, actor, previousStatus }) {
   if (task.status === previousStatus) return null;
   const done = task.status === DONE_STATUS;
+  // FR30: tell the project's chat (never throws, not waited for)
+  if (done) postBotMessage({ workspace: project.workspace, project: project._id, actor, kind: 'task_done', text: `✅ "${task.title}" is Done` });
   return logActivity({
     workspace: project.workspace,
     project: project._id,

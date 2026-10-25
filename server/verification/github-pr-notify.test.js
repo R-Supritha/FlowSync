@@ -28,6 +28,8 @@ stub('models/Task.js', {
   findById: async (id) => db.tasks.find((t) => String(t._id) === String(id)) || null,
   findOne: () => chain(null),
 });
+const botCalls = [];
+stub('utils/chatBot.js', { postBotMessage: async (m) => { botCalls.push(m); return null; } });
 const notes = [];
 stub('models/Notification.js', { create: async (doc) => { notes.push(doc); return doc; } });
 stub('models/ActivityLog.js', { create: async (doc) => { db.activity.push(doc); return { ...doc, populate: async () => {}, toObject: () => doc }; } });
@@ -56,7 +58,7 @@ const when = () => new Date(Date.now() - 120000).toISOString();
 const prOnGithub = (number, title, over = {}) => ({ number, title, body: '', head: { ref: `b${number}` }, user: { login: 'dev' }, created_at: when(), merged_at: null, html_url: 'u', files: [{ filename: 'a.js', status: 'added', additions: 5, deletions: 0, changes: 5, sha: 'f'.repeat(40) }], ...over });
 const ref = (i) => `FS-${T(i).slice(-6)}`;
 beforeEach(() => {
-  commitsOnGithub = []; pullsOnGithub = []; notes.length = 0;
+  commitsOnGithub = []; pullsOnGithub = []; notes.length = 0; botCalls.length = 0;
   db.tasks = [mk(1, 'Review', 'dev-id'), mk(2, 'To Do', 'other-id', { reporter: 'dev-id' })]; db.events = []; db.activity = [];
   db.users = [{ _id: 'dev-id', githubUsername: 'dev' }];
   db.project = { _id: T(900), workspace: T(800), isArchived: false, columns: ['Backlog', 'To Do', 'In Progress', 'Review', 'Testing', 'Done'] };
@@ -100,4 +102,17 @@ test('sync: commits never create pull request notifications', async () => {
   commitsOnGithub = [{ sha: 'abc0001', html_url: 'x', author: { login: 'stranger' }, commit: { message: `${ref(1)} work`, author: { date: when() } }, files: [{ filename: 'a.js', status: 'added', additions: 3, deletions: 0, changes: 3, sha: 'a'.repeat(40) }] }];
   await sync();
   assert.equal(notes.length, 0);
+});
+
+test('FR30 sync: a merged pull request that finishes a task announces it in the project chat, once; an opened one does not', async () => {
+  pullsOnGithub = [prOnGithub(9, `${ref(2)} ship it`, { user: { login: 'stranger' } })];
+  await sync();
+  assert.equal(botCalls.length, 0);                                                      // opened: the task goes to Review, not Done
+  pullsOnGithub = [prOnGithub(9, `${ref(2)} ship it`, { user: { login: 'stranger' }, merged_at: when() })];
+  await sync();
+  assert.equal(botCalls.length, 1);
+  assert.equal(botCalls[0].kind, 'task_done'); assert.equal(String(botCalls[0].project), T(900)); assert.equal(String(botCalls[0].workspace), T(800));
+  assert.match(botCalls[0].text, /^✅ "Task 2" is Done \(.*PR #9/);
+  await sync();
+  assert.equal(botCalls.length, 1);                                                      // syncing again says nothing new
 });

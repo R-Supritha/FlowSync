@@ -1,4 +1,5 @@
 // FR23 (stand-up report), FR24 (sprint planning) and FR25 (task breakdown).
+const { postBotMessage } = require('../utils/chatBot');
 const mongoose = require('mongoose');
 const Project = require('../models/Project');
 const Task = require('../models/Task');
@@ -67,6 +68,8 @@ async function breakdown(req, res) {
 
 // ---------------------------------------------------------------- FR23
 // POST /api/projects/:projectId/ai/standup   body: { windowHours?: 24|48|72|168, useAi?: boolean }
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 async function standup(req, res) {
   try {
     const loaded = await loadProject(req, res);
@@ -94,6 +97,21 @@ async function standup(req, res) {
 
     const facts = buildStandupFacts({ activities, tasks, now, windowHours });
     const report = await generateStandupReport({ facts, useAi });
+
+    // FR30: when there is something to report, say in the project's chat that the stand-up is ready
+    // (at most once every 6 hours, however often the page is opened)
+    const sum = (key) => facts.people.reduce((n, p) => n + (p.counts[key] || 0), 0);
+    const blockers = facts.people.reduce((n, p) => n + p.blockers.length, 0) + facts.team.unassignedBlockers.length;
+    if (facts.people.length || blockers) {
+      postBotMessage({
+        workspace: project.workspace,
+        project: project._id,
+        actor: req.user.id,
+        kind: 'standup',
+        dedupeHours: 6,
+        text: `📋 Stand-up ready for the last ${windowHours} hours: ${plural(facts.team.tasksCompleted, 'task')} completed, ${plural(sum('commits'), 'commit')}, ${plural(blockers, 'blocker')}. Open the Stand-up page for the full report.`,
+      });
+    }
     return res.json({ success: true, report });
   } catch (error) {
     return serverError(res, 'Failed to build the stand-up report', error);
@@ -170,6 +188,18 @@ async function applySprint(req, res) {
       await task.save();
       await logTaskStatusChange({ task, project, actor: req.user.id, previousStatus });
       moved.push({ _id: String(task._id), title: task.title });
+    }
+    // FR30: announce the sprint in the project's chat (never throws, not waited for)
+    if (moved.length) {
+      const shown = moved.slice(0, 5).map((t) => `"${t.title}"`).join(', ');
+      const more = moved.length > 5 ? ` and ${moved.length - 5} more` : '';
+      postBotMessage({
+        workspace: project.workspace,
+        project: project._id,
+        actor: req.user.id,
+        kind: 'sprint',
+        text: `🚀 Sprint started: ${moved.length} task${moved.length === 1 ? '' : 's'} moved to ${SPRINT_COLUMN}: ${shown}${more}`,
+      });
     }
     return res.json({ success: true, target: SPRINT_COLUMN, moved, skipped });
   } catch (error) {

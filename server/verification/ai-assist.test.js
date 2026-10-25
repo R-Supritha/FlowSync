@@ -41,6 +41,8 @@ stub('models/Task.js', {
 stub('models/ActivityLog.js', { find: (q) => chain(() => db.activity.filter((a) => String(a.project) === String(q.project) && new Date(a.createdAt) >= q.createdAt.$gte)) });
 const access = require('../src/utils/access');
 stub('utils/access.js', { ...access, getWorkspaceRole: async () => role });
+const botPosts = [];
+stub('utils/chatBot.js', { postBotMessage: async (m) => { botPosts.push(m); return null; } });
 stub('utils/activity.js', { logTaskStatusChange: async (e) => { db.logged.push({ id: String(e.task._id), from: e.previousStatus, to: e.task.status }); } });
 
 const svc = require('../src/services/sprintService');
@@ -95,7 +97,7 @@ beforeEach(() => {
   resetAiThrottle();
   db.project = { _id: T(900), workspace: T(800), name: 'Library', description: 'Books', isArchived: false, columns: ['Backlog', 'To Do', 'In Progress', 'Review', 'Testing', 'Done'] };
   db.workspace = { members: [{ role: 'Admin' }, { role: 'Member' }, { role: 'Member' }, { role: 'Viewer' }] };
-  db.tasks = []; db.activity = []; db.logged = [];
+  db.tasks = []; db.activity = []; db.logged = []; botPosts.length = 0;
 });
 
 const call = async (method, p, body, auth = true) => {
@@ -342,4 +344,41 @@ test('FR23 standup: empty projects, window choices, and who may read it', async 
   role = 'Viewer'; assert.equal((await standupCall({})).status, 200);   // read-only people may read it
   role = null; assert.equal((await standupCall({})).status, 404);
   assert.equal((await call('POST', `/projects/${T(901)}/ai/standup`, {})).status, 404);
+});
+
+
+// ================================================================ FR30: FlowSync announces in the project chat
+test('FR30 sprint: starting a sprint posts ONE message in the project chat, naming the first five tasks', async () => {
+  db.tasks = Array.from({ length: 7 }, (_, i) => mk(i + 1));
+  const r = await sprintApply(db.tasks.map((t) => t._id));
+  assert.equal(r.status, 200); assert.equal(r.data.moved.length, 7);
+  assert.equal(botPosts.length, 1);
+  const post = botPosts[0];
+  assert.equal(post.kind, 'sprint'); assert.equal(String(post.project), T(900)); assert.equal(String(post.workspace), T(800)); assert.ok(post.actor);
+  assert.match(post.text, /^🚀 Sprint started: 7 tasks moved to To Do: "Task 1", "Task 2", "Task 3", "Task 4", "Task 5" and 2 more$/);
+});
+test('FR30 sprint: one task reads "1 task", and nothing is posted when nothing moved or the request is refused', async () => {
+  db.tasks = [mk(1), mk(2, { status: 'In Progress' })];
+  assert.equal((await sprintApply([T(2)])).data.moved.length, 0); assert.equal(botPosts.length, 0);
+  await sprintApply([T(1)]);
+  assert.equal(botPosts.length, 1); assert.match(botPosts[0].text, /^🚀 Sprint started: 1 task moved to To Do: "Task 1"$/);
+  botPosts.length = 0; role = 'Member';
+  assert.equal((await sprintApply([T(1)])).status, 403); assert.equal(botPosts.length, 0);
+});
+test('FR30 stand-up: when there is something to report, the chat is told once per 6 hours, with the counts', async () => {
+  db.activity = [act('commit_pushed', 'Sunitha', 1, 'committed "A"'), act('comment_added', 'Raj', 2, 'commented')];
+  db.tasks = [mk(1, { title: 'Login', status: 'In Progress', assignee: { _id: 'sunitha', name: 'Sunitha' } })];
+  const r = await standupCall({});
+  assert.equal(r.status, 200);
+  assert.equal(botPosts.length, 1);
+  assert.equal(botPosts[0].kind, 'standup'); assert.equal(botPosts[0].dedupeHours, 6); assert.equal(String(botPosts[0].project), T(900));
+  assert.equal(botPosts[0].text, '📋 Stand-up ready for the last 24 hours: 0 tasks completed, 1 commit, 0 blockers. Open the Stand-up page for the full report.');
+});
+test('FR30 stand-up: a quiet project posts nothing, and the plain (no AI) report still announces itself', async () => {
+  db.activity = []; db.tasks = [];
+  assert.equal((await standupCall({})).status, 200); assert.equal(botPosts.length, 0);
+  db.activity = [act('commit_pushed', 'Sunitha', 1, 'committed "A"'), act('commit_pushed', 'Raj', 2, 'committed "B"')];
+  const r = await standupCall({ useAi: false, windowHours: 48 });
+  assert.equal(r.data.report.source, 'rules');
+  assert.equal(botPosts.length, 1); assert.match(botPosts[0].text, /last 48 hours: 0 tasks completed, 2 commits, 0 blockers/);
 });

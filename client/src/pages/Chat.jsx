@@ -101,7 +101,7 @@ export default function ChatPage() {
         addMessage(m)
         if (m.author._id !== me) chatApi.markRead(m.channel).catch(() => {})
       }
-    } else if (ev.type === 'message_edited') {
+    } else if (ev.type === 'message_edited' || ev.type === 'message_reacted') {
       replaceMessage(ev.message)
     } else if (ev.type === 'message_deleted') {
       setView((v) => ({ ...v, items: v.items.map((x) => (x._id === ev.id ? { ...x, text: '', deleted: true } : x)) }))
@@ -166,6 +166,15 @@ export default function ChatPage() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send()
+    }
+  }
+
+  async function react(message, emoji) {
+    try {
+      const res = await chatApi.react(message._id, emoji)
+      replaceMessage(res.message)
+    } catch (e) {
+      dispatch(pushToast(errorMessage(e, 'Could not react to the message'), 'error'))
     }
   }
 
@@ -276,10 +285,13 @@ export default function ChatPage() {
                         key={m._id}
                         message={m}
                         mine={m.author._id === me}
+                        me={me}
                         canEdit={canPost && m.author._id === me}
                         canDelete={m.author._id === me || canManage}
+                        canReact={canPost}
                         onEdit={edit}
                         onDelete={setToDelete}
+                        onReact={react}
                       />
                     ))}
                   </ul>

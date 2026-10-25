@@ -42,15 +42,21 @@ function parseText(raw) {
   return { value: text };
 }
 
+const REACTIONS = ['👍', '❤️', '🎉', '👀'];
+
 const presentMessage = (m) => ({
   _id: String(m._id),
   channel: String(m.channel),
-  author: m.author && m.author._id
+  ...(m.bot ? { bot: true } : {}),
+  author: m.bot
+    ? { _id: 'flowsync-bot', name: 'FlowSync' }
+    : m.author && m.author._id
     ? { _id: String(m.author._id), name: m.author.name, ...(m.author.avatarUrl ? { avatarUrl: m.author.avatarUrl } : {}) }
     : { _id: String(m.author), name: 'Someone' },
   text: m.deletedAt ? '' : m.text,
   deleted: Boolean(m.deletedAt),
   editedAt: m.editedAt || null,
+  reactions: m.deletedAt ? [] : (m.reactions || []).filter((r) => r.users && r.users.length).map((r) => ({ emoji: r.emoji, users: r.users.map(String) })),
   createdAt: m.createdAt,
 });
 
@@ -335,6 +341,44 @@ async function editMessage(req, res) {
   }
 }
 
+// POST /messages/:id/reactions   body: { emoji }   (anyone who can post; a second click takes the reaction back)
+async function reactToMessage(req, res) {
+  try {
+    const loaded = await loadMessage(req, res);
+    if (!loaded) return;
+    const { message, role } = loaded;
+    if (!canWrite(role)) return fail(res, 403, 'Viewers can read messages but not react');
+    if (message.deletedAt) return fail(res, 400, 'This message was deleted');
+
+    const emoji = req.body && req.body.emoji;
+    if (!REACTIONS.includes(emoji)) return fail(res, 400, `emoji must be one of ${REACTIONS.join(' ')}`);
+
+    if (!message.reactions) message.reactions = [];
+    const me = String(req.user.id);
+    const entry = message.reactions.find((r) => r.emoji === emoji);
+    let reacted;
+    if (!entry) {
+      message.reactions.push({ emoji, users: [req.user.id] });
+      reacted = true;
+    } else if (entry.users.some((u) => String(u) === me)) {
+      entry.users = entry.users.filter((u) => String(u) !== me);
+      reacted = false;
+    } else {
+      entry.users.push(req.user.id);
+      reacted = true;
+    }
+    message.reactions = message.reactions.filter((r) => r.users.length > 0);
+    await message.save();
+
+    const withName = await Message.findById(message._id).populate('author', 'name avatarUrl').lean();
+    const out = presentMessage(withName || message);
+    publish(String(message.workspace), { type: 'message_reacted', message: out });
+    return res.json({ success: true, message: out, reacted });
+  } catch (error) {
+    return serverError(res, 'Failed to react to the message', error);
+  }
+}
+
 // DELETE /messages/:id   (the author, or an Admin or Manager)
 async function deleteMessage(req, res) {
   try {
@@ -399,6 +443,6 @@ async function stream(req, res) {
 }
 
 module.exports = {
-  listChannels, createChannel, updateChannel, clearChannel, deleteChannel, listMessages, sendMessage, editMessage, deleteMessage, markRead, stream,
+  listChannels, createChannel, updateChannel, clearChannel, deleteChannel, listMessages, sendMessage, editMessage, deleteMessage, reactToMessage, markRead, stream, ensureChannels, presentMessage, REACTIONS,
   slugify, parseChannelName, parseText, MAX_TEXT,
 };

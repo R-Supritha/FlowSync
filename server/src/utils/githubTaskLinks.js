@@ -1,3 +1,4 @@
+const { postBotMessage } = require('./chatBot');
 const Task = require('../models/Task');
 const ActivityLog = require('../models/ActivityLog');
 const { publish } = require('./activityBus');
@@ -111,6 +112,8 @@ async function moveTask({ ev, project, taskId, actor, ref, viaAuthor = false }) 
     // one millisecond after the commit / PR, so the move sits right above it in the feed
     createdAt: new Date(ev.date.getTime() + 1),
   });
+  // FR30: tell the project's chat (never throws, not waited for)
+  if (done) postBotMessage({ workspace: project.workspace, project: project._id, actor, kind: 'task_done', text: `✅ "${task.title}" is Done (${because})` });
 
   return { status: 'moved', moved: { ref, title: task.title, from: previousStatus, to: target, because } };
 }

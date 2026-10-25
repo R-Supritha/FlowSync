@@ -14,7 +14,7 @@ const BADGES_RESPONSE = {
   ],
 }
 
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false, withCommentFiles = false, githubExtras = 'none' } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false, withCommentFiles = false, githubExtras = 'none', botMessage = false, seedReactions = false } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -366,7 +366,7 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     }
 
     // ---- FR26 channels, FR27 live messaging ----
-    const chatMsg = (channel, author, text, over = {}) => { state.seq += 1; return { _id: `m${String(state.seq).padStart(4, '0')}`, channel, author: { _id: author._id, name: author.name }, text, deleted: false, editedAt: null, createdAt: iso(-0.01 * (100 - state.seq)), ...over } }
+    const chatMsg = (channel, author, text, over = {}) => { state.seq += 1; return { _id: `m${String(state.seq).padStart(4, '0')}`, channel, author: { _id: author._id, name: author.name }, text, deleted: false, reactions: [], editedAt: null, createdAt: iso(-0.01 * (100 - state.seq)), ...over } }
     if (!state.chatSeeded) {
       state.chatSeeded = true
       if (manyMessages) for (let i = 1; i <= 60; i += 1) state.messages.push(chatMsg('ch-general', i % 2 ? other : me, `old message ${i}`))
@@ -375,6 +375,8 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
         state.messages.push(chatMsg('ch-general', me, 'Thanks!'))
         state.messages.push(chatMsg('ch-general', other, 'Standup at 10'))
       }
+      if (seedReactions) state.messages.find((x) => x.text === 'Welcome everyone').reactions = [{ emoji: '👍', users: [ids.other] }, { emoji: '🎉', users: [ids.me, ids.other] }]
+      if (botMessage) state.messages.push({ _id: 'mbot1', channel: 'ch-general', bot: true, author: { _id: 'flowsync-bot', name: 'FlowSync' }, text: '✅ "Build login page" is Done', deleted: false, reactions: [], editedAt: null, createdAt: iso(-0.001) })
     }
     const isManagerRole = role === 'Admin' || role === 'Manager'
     if (url === `/workspaces/${W}/channels` && method === 'get') return ok({ success: true, channels: JSON.parse(JSON.stringify(state.channels)), canPost: role !== 'Viewer', canManage: isManagerRole })
@@ -409,6 +411,21 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       const msg = chatMsg(mm[1], me, String(body.text).trim(), { createdAt: iso(0) })
       state.messages.push(msg)
       return ok({ success: true, message: msg }, 201)
+    }
+    mm = m(/^\/messages\/([\w-]+)\/reactions$/)
+    if (mm && method === 'post') {
+      const msg = state.messages.find((x) => x._id === mm[1])
+      if (!msg) return fail(err(404, 'Message not found'))
+      if (role === 'Viewer') return fail(err(403, 'Viewers can read messages but not react'))
+      if (msg.deleted) return fail(err(400, 'This message was deleted'))
+      if (!['👍', '❤️', '🎉', '👀'].includes(body.emoji)) return fail(err(400, 'emoji must be one of 👍 ❤️ 🎉 👀'))
+      const entry = msg.reactions.find((r) => r.emoji === body.emoji)
+      let reacted = true
+      if (!entry) msg.reactions.push({ emoji: body.emoji, users: [ids.me] })
+      else if (entry.users.includes(ids.me)) { entry.users = entry.users.filter((u) => u !== ids.me); reacted = false }
+      else entry.users.push(ids.me)
+      msg.reactions = msg.reactions.filter((r) => r.users.length > 0)
+      return ok({ success: true, message: JSON.parse(JSON.stringify(msg)), reacted })
     }
     mm = m(/^\/channels\/([\w-]+)$/)
     if (mm && method === 'patch') {
