@@ -30,12 +30,14 @@ const aiProjectRoutes = require('./routes/aiProjectRoutes');
 const aiAssistRoutes = require('./routes/aiAssistRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const chatRoutes = require('./routes/chatRoutes');
+const { mountAvatars } = require('./config/avatar');
 const { UPLOAD_DIR } = require('./config/upload');
 const app = express();
 
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+mountAvatars(app); // profile pictures at /avatars (FR21)
 app.use('/api', activityRoutes);
 app.use('/api', contributionRoutes);
 app.use('/api', presenceRoutes);

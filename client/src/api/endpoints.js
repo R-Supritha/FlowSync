@@ -133,6 +133,12 @@ export const profileApi = {
   me: () => api.get('/profile').then(data),
   update: (body) => api.put('/profile', body).then(data),
   user: (id) => api.get(`/users/${id}/profile`).then(data),
+  uploadAvatar: (file) => {
+    const form = new FormData()
+    form.append('avatar', file)
+    return api.post('/profile/avatar', form).then(data)
+  },
+  removeAvatar: () => api.delete('/profile/avatar').then(data),
 }
 
 export const activityApi = {

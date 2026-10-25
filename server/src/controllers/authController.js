@@ -22,7 +22,7 @@ const fail = (res, status, message) => res.status(status).json({ success: false,
 const normalizeEmail = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
 // emailVerified is unset on accounts that predate verification: those count as verified
 const isVerified = (user) => user.emailVerified !== false;
-const publicUser = (user) => ({ id: user._id, name: user.name, email: user.email, role: user.role, emailVerified: isVerified(user) });
+const publicUser = (user) => ({ id: user._id, name: user.name, email: user.email, role: user.role, emailVerified: isVerified(user), avatarUrl: user.avatarUrl || '' });
 
 function passwordProblem(password) {
   if (typeof password !== 'string' || password.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters`;

@@ -3,11 +3,22 @@ import { ids, token } from './token'
 export { ids, token }
 
 // A pretend FlowSync API that answers with the exact response shapes the real server returned in our tests.
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false } = {}) {
+const BADGES_RESPONSE = {
+  earned: 2,
+  total: 8,
+  badges: [
+    { id: 'first-task', title: 'First task done', description: 'Complete your first task', target: 1, current: 1, earned: true },
+    { id: 'task-finisher', title: 'Task finisher', description: 'Complete 10 tasks', target: 10, current: 10, earned: true },
+    { id: 'task-master', title: 'Task master', description: 'Complete 50 tasks', target: 50, current: 12, earned: false },
+    { id: 'team-voice', title: 'Team voice', description: 'Write 10 comments', target: 10, current: 3, earned: false },
+  ],
+}
+
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
-  const other = { _id: ids.other, name: 'Test User Two', email: 'testuser2@test.com' }
+  const other = { _id: ids.other, name: 'Test User Two', email: 'testuser2@test.com', ...(pictures ? { avatarUrl: '/avatars/raj.png' } : {}) }
 
   const state = {
     tasks: [
@@ -49,6 +60,15 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       { _id: 'a3', type: 'comment_added', category: 'collaboration', message: 'commented on "Build login page"', actor: other, project: { _id: ids.project, name: 'Demo Project' }, createdAt: iso(-0.3) },
     ],
   }
+  if (hasPicture) state.profile.avatarUrl = '/avatars/me-0123456789abcdef.png'
+  if (moreNotifications) {
+    state.notifications.push(
+      { _id: 'n4', type: 'pr_opened', message: 'Pull request #7 "Add search" was opened for "Build login page"', isRead: false, createdAt: iso(-0.02), link: { workspace: ids.ws, project: ids.project, task: ids.t1 } },
+      { _id: 'n5', type: 'pr_merged', message: 'Pull request #7 "Add search" was merged for "Build login page"', isRead: false, createdAt: iso(-0.03), link: { workspace: ids.ws, project: ids.project, task: ids.t1 } },
+      { _id: 'n6', type: 'deadline_approaching', message: '"Build login page" is due in 5 hours', isRead: false, createdAt: iso(-0.04), link: { workspace: ids.ws, project: ids.project, task: ids.t1 } },
+      { _id: 'n7', type: 'deadline_overdue', message: '"Write tests" is overdue (it was due 2026-10-22)', isRead: false, createdAt: iso(-0.05), link: { workspace: ids.ws, project: ids.project, task: ids.t3 } },
+    )
+  }
   const project = () => ({ _id: ids.project, workspace: ids.ws, name: 'Demo Project', description: 'testing', template: 'web-app-starter', columns: ['Backlog', 'To Do', 'In Progress', 'Review', 'Testing', 'Done'], labels: ['auth', 'frontend'], milestones: state.milestones, isArchived: false })
   const workspace = { _id: ids.ws, name: 'My Test Workspace', description: 'ws', owner: ids.me, members: [{ user: ids.me, role }, { user: ids.other, role: 'Member' }] }
   const board = (q = {}) => {
@@ -71,7 +91,7 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     const params = config.params || {}
     let body = config.data
     if (typeof body === 'string') body = JSON.parse(body)
-    else if (body instanceof FormData) body = { file: body.get('file') }
+    else if (body instanceof FormData) body = { file: body.get('file') || body.get('avatar') }
     calls.push({ method, url, body, params, auth: config.headers?.Authorization })
     const fail = (e) => { e.config = config; return Promise.reject(e) }
     const is = (m, re) => method === m && re.test(url)
@@ -225,9 +245,9 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     if (url === '/presence/status') return ok({ success: true, presence: { status: body.status || 'Active', source: 'manual', workMode: body.workMode || null, workModeSource: 'manual' } })
     if (url === '/settings/privacy' && method === 'get') return ok({ success: true, privacy: state.privacy })
     if (url === '/settings/privacy' && method === 'put') { Object.assign(state.privacy, body); return ok({ success: true, privacy: state.privacy }) }
-    if (url === '/profile' && method === 'get') return ok({ success: true, emailVerified: verifiedOnServer, user: state.profile, workspaces: [{ _id: W, name: 'My Test Workspace' }], projects: [{ _id: P, name: 'Demo Project' }] })
+    if (url === '/profile' && method === 'get') return ok({ success: true, emailVerified: verifiedOnServer, achievements: BADGES_RESPONSE, user: state.profile, workspaces: [{ _id: W, name: 'My Test Workspace' }], projects: [{ _id: P, name: 'Demo Project' }] })
     if (url === '/profile' && method === 'put') { Object.assign(state.profile, body); return ok({ success: true, user: state.profile }) }
-    if (url === `/users/${ids.other}/profile`) return ok({ success: true, user: { ...other, bio: 'Teammate bio', skills: ['Node'], githubUsername: 'tester2' } })
+    if (url === `/users/${ids.other}/profile`) return ok({ success: true, user: { ...other, bio: 'Teammate bio', skills: ['Node'], githubUsername: 'tester2' }, workspaces: [{ _id: ids.ws, name: 'My Test Workspace', role: 'Member' }], projects: [], achievements: achievements === 'shown' ? BADGES_RESPONSE : null, achievementsHidden: achievements !== 'shown' })
     mm = m(/^\/users\/(\w+)\/contributions(\/day)?$/)
     if (mm) {
       if (hiddenDots || mm[1] === ids.other) return fail(err(403, 'This user has not shared their activity with you'))
@@ -454,6 +474,14 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       target.role = body.role
       return ok({ success: true, workspace: JSON.parse(JSON.stringify(workspace)) })
     }
+
+    // ---- FR21 profile picture ----
+    if (url === '/profile/avatar' && method === 'post') {
+      if (avatarFail) return fail(err(400, 'The file is not a PNG, JPEG, GIF or WebP picture'))
+      state.profile.avatarUrl = '/avatars/me-0123456789abcdef.png'
+      return ok({ success: true, user: { avatarUrl: state.profile.avatarUrl } })
+    }
+    if (url === '/profile/avatar' && method === 'delete') { state.profile.avatarUrl = ''; return ok({ success: true, user: { avatarUrl: '' } }) }
 
     return fail(err(404, `unmocked ${method} ${url}`))
   }

@@ -1,3 +1,4 @@
+import { avatarSrc } from '../../utils/avatar'
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { Link, useNavigate } from 'react-router-dom'
@@ -156,7 +157,7 @@ export default function TitleBar() {
           aria-label="Account menu"
           onClick={() => setMenuOpen((o) => !o)}
         >
-          <Avatar name={user?.name} size={22} />
+          <Avatar name={user?.name} url={avatarSrc(user?.avatarUrl)} size={22} />
         </button>
         {menuOpen && (
           <div role="menu" className="dropdown-menu account-menu" style={{ right: 0, top: 34, width: 220 }}>

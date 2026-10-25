@@ -1920,3 +1920,32 @@ code {
 .verify-banner span {
   flex: 1;
 }
+
+/* Achievements (FR21) */
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.badge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elev);
+}
+.badge-card.earned {
+  border-color: var(--ok);
+}
+.badge-card.locked {
+  opacity: 0.75;
+}
+.badge-status {
+  color: var(--ok);
+  font-weight: 600;
+}

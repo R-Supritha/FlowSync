@@ -45,7 +45,9 @@ function parseText(raw) {
 const presentMessage = (m) => ({
   _id: String(m._id),
   channel: String(m.channel),
-  author: m.author && m.author._id ? { _id: String(m.author._id), name: m.author.name } : { _id: String(m.author), name: 'Someone' },
+  author: m.author && m.author._id
+    ? { _id: String(m.author._id), name: m.author.name, ...(m.author.avatarUrl ? { avatarUrl: m.author.avatarUrl } : {}) }
+    : { _id: String(m.author), name: 'Someone' },
   text: m.deletedAt ? '' : m.text,
   deleted: Boolean(m.deletedAt),
   editedAt: m.editedAt || null,
@@ -136,7 +138,7 @@ async function listChannels(req, res) {
       }
       const [unread, last] = await Promise.all([
         Message.countDocuments({ channel: c._id, createdAt: { $gt: since }, author: { $ne: req.user.id }, deletedAt: null }),
-        Message.findOne({ channel: c._id, deletedAt: null }).sort({ _id: -1 }).populate('author', 'name').lean(),
+        Message.findOne({ channel: c._id, deletedAt: null }).sort({ _id: -1 }).populate('author', 'name avatarUrl').lean(),
       ]);
       return presentChannel(c, {
         unread,
@@ -261,13 +263,13 @@ async function listMessages(req, res) {
     }
 
     if (after) {
-      const rows = await Message.find({ channel: channel._id, _id: { $gt: after } }).sort({ _id: 1 }).limit(limit).populate('author', 'name').lean();
+      const rows = await Message.find({ channel: channel._id, _id: { $gt: after } }).sort({ _id: 1 }).limit(limit).populate('author', 'name avatarUrl').lean();
       return res.json({ success: true, messages: rows.map(presentMessage), hasMore: rows.length === limit });
     }
 
     const query = { channel: channel._id };
     if (before) query._id = { $lt: before };
-    const rows = await Message.find(query).sort({ _id: -1 }).limit(limit).populate('author', 'name').lean();
+    const rows = await Message.find(query).sort({ _id: -1 }).limit(limit).populate('author', 'name avatarUrl').lean();
     return res.json({ success: true, messages: rows.reverse().map(presentMessage), hasMore: rows.length === limit });
   } catch (error) {
     return serverError(res, 'Failed to load messages', error);
@@ -291,7 +293,7 @@ async function sendMessage(req, res) {
     if (parsed.error) return fail(res, 400, parsed.error);
 
     const created = await Message.create({ channel: channel._id, workspace: channel.workspace, author: req.user.id, text: parsed.value });
-    const out = presentMessage(await Message.findById(created._id).populate('author', 'name').lean());
+    const out = presentMessage(await Message.findById(created._id).populate('author', 'name avatarUrl').lean());
 
     await touchRead(req.user.id, channel._id);
     publish(String(channel.workspace), { type: 'message', message: out });
@@ -324,7 +326,7 @@ async function editMessage(req, res) {
     message.editedAt = new Date();
     await message.save();
 
-    const withName = await Message.findById(message._id).populate('author', 'name').lean();
+    const withName = await Message.findById(message._id).populate('author', 'name avatarUrl').lean();
     const out = presentMessage(withName || message);
     publish(String(message.workspace), { type: 'message_edited', message: out });
     return res.json({ success: true, message: out });

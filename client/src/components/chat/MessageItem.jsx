@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Avatar } from '../ui'
+import { avatarSrc } from '../../utils/avatar'
 import { formatDate } from '../../utils/format'
 
 export const MAX_TEXT = 4000
@@ -43,7 +44,7 @@ export default function MessageItem({ message, mine, canEdit, canDelete, onEdit,
 
   return (
     <li className="chat-msg" aria-label={`Message from ${message.author.name}`}>
-      <Avatar name={message.author.name} size={30} />
+      <Avatar name={message.author.name} url={avatarSrc(message.author.avatarUrl)} size={30} />
       <div className="chat-msg-body">
         <div className="chat-msg-head">
           <strong>{message.author.name}</strong>

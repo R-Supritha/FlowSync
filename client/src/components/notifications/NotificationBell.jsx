@@ -16,7 +16,10 @@ const TYPE_ICON = {
   mention: 'Mentioned',
   comment_reply: 'Reply',
   deadline_approaching: 'Deadline',
+  deadline_overdue: 'Overdue',
   status_changed: 'Status',
+  pr_opened: 'Pull request',
+  pr_merged: 'Merged',
 }
 
 export default function NotificationBell() {

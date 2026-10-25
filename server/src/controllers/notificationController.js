@@ -1,8 +1,13 @@
 const { serverError } = require('../utils/access');
 const Notification = require('../models/Notification');
+const { createDeadlineReminders } = require('../utils/reminders');
 
 async function getMyNotifications(req, res) {
   try {
+    // Deadline reminders are created when the person opens the app (the bell asks regularly),
+    // so no background timer is needed. A problem here must never stop the list from loading.
+    await createDeadlineReminders(req.user.id).catch((error) => console.error('Deadline reminders failed:', error.message));
+
     const filter = { user: req.user.id };
     if (req.query.unread === 'true') filter.isRead = false;
 

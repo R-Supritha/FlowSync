@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Task = require('../models/Task');
 const GithubLink = require('../models/GithubLink');
 const GithubEvent = require('../models/GithubEvent');
+const { notifyPullRequest } = require('../utils/githubNotify');
 const { recordActivity, makeTaskIndex, applyEventToTasks, applyAuthorFallback, refFor, extractRefs } = require('../utils/githubTaskLinks');
 const { canWrite, isManagerRole, getWorkspaceRole, serverError } = require('../utils/access');
 const { encrypt, decrypt } = require('../utils/tokenCrypto');
@@ -198,7 +199,7 @@ async function syncRepository(req, res) {
 
     // last-6-characters of every active task id, so FS-xxxxxx references can be resolved
     const activeTasks = events.length
-      ? await Task.find({ project: project._id, isArchived: false }).select('_id assignee status').lean()
+      ? await Task.find({ project: project._id, isArchived: false }).select('_id title assignee reporter status').lean()
       : [];
     const taskIndex = makeTaskIndex(activeTasks);
 
@@ -255,6 +256,11 @@ async function syncRepository(req, res) {
       } catch (error) {
         await GithubEvent.deleteOne({ project: project._id, key: ev.key }); // let the next sync retry it
         throw error;
+      }
+
+      // FR10: tell the people on the task about the pull request (never throws; see notify())
+      if (ev.type === 'pr_opened' || ev.type === 'pr_merged') {
+        await notifyPullRequest({ ev, project, tasks: activeTasks, index: taskIndex, authorId: matchedId });
       }
 
       if (ev.type === 'commit_pushed') recorded.commits += 1;

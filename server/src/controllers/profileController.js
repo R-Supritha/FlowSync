@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const Workspace = require('../models/Workspace');
 const Project = require('../models/Project');
+const { computeAchievements, loadAchievementCounts } = require('../utils/achievements');
+const { readPrivacy, sharedWorkspaces, visibleWorkspaceIds } = require('../utils/privacy');
+const { removeAvatarFile } = require('../config/avatar');
 
 const PUBLIC_FIELDS = 'name email bio skills avatarUrl githubUsername createdAt';
 
@@ -38,6 +41,16 @@ async function buildProfile(user, workspaceFilter) {
   };
 }
 
+// Achievements must never stop a profile from loading.
+async function achievementsFor(userId, workspaceIds) {
+  try {
+    return computeAchievements(await loadAchievementCounts(userId, workspaceIds));
+  } catch (error) {
+    console.error('Could not work out achievements:', error.message);
+    return null;
+  }
+}
+
 async function getMyProfile(req, res) {
   try {
     const user = await User.findById(req.user.id).select(`${PUBLIC_FIELDS} emailVerified`).lean();
@@ -45,7 +58,8 @@ async function getMyProfile(req, res) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
     const profile = await buildProfile(user, { 'members.user': req.user.id });
-    res.json({ success: true, ...profile, emailVerified: user.emailVerified !== false });
+    const achievements = await achievementsFor(user._id, profile.workspaces.map((w) => w._id));
+    res.json({ success: true, ...profile, achievements, emailVerified: user.emailVerified !== false });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to load profile', error: error.message });
   }
@@ -107,6 +121,8 @@ async function updateMyProfile(req, res) {
       return res.status(400).json({ success: false, message: 'No valid fields to update' });
     }
 
+    const before = updates.avatarUrl !== undefined ? await User.findById(req.user.id).select('avatarUrl').lean() : null;
+
     const user = await User.findByIdAndUpdate(req.user.id, updates, {
       new: true,
       runValidators: true,
@@ -118,6 +134,7 @@ async function updateMyProfile(req, res) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    if (before && before.avatarUrl && before.avatarUrl !== user.avatarUrl) removeAvatarFile(before.avatarUrl);
     res.json({ success: true, user: withDefaults(user) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to update profile', error: error.message });
@@ -144,13 +161,20 @@ async function getUserProfile(req, res) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const user = await User.findById(targetId).select(PUBLIC_FIELDS).lean();
-    if (!user) {
+    const found = await User.findById(targetId).select(`${PUBLIC_FIELDS} privacy`).lean();
+    if (!found) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
+    const { privacy, ...user } = found; // the privacy settings are used below but never sent
 
     const profile = await buildProfile(user, sharedFilter);
-    res.json({ success: true, ...profile });
+
+    // Achievements come from activity, so they follow the same rule as the weekly contribution dots:
+    // only the shared workspaces where this person lets the viewer see their contributions count.
+    const shared = await sharedWorkspaces(req.user.id, targetId);
+    const visible = await visibleWorkspaceIds(req.user.id, targetId, readPrivacy({ privacy }).contributionVisibility, shared);
+    const achievements = visible.length ? await achievementsFor(user._id, visible) : null;
+    res.json({ success: true, ...profile, achievements, achievementsHidden: visible.length === 0 });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to load profile', error: error.message });
   }

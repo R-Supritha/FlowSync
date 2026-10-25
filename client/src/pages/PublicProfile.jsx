@@ -5,6 +5,8 @@ import { profileApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { formatDate } from '../utils/format'
 import { Avatar, Chip, EmptyState, ErrorState, Spinner } from '../components/ui'
+import Achievements from '../components/Achievements'
+import { avatarSrc } from '../utils/avatar'
 
 export default function PublicProfile() {
   const { id: userId } = useParams()
@@ -39,12 +41,12 @@ export default function PublicProfile() {
   if (status === 'loading') return <Spinner label="Loading profile…" />
   if (status === 'error') return <ErrorState message={error} onRetry={load} />
 
-  const { user, workspaces, projects } = data
+  const { user, workspaces, projects, achievements, achievementsHidden } = data
 
   return (
     <div className="page">
       <div className="fs-row" style={{ gap: 16, alignItems: 'center' }}>
-        <Avatar name={user.name} src={user.avatarUrl || undefined} size={56} />
+        <Avatar name={user.name} url={avatarSrc(user.avatarUrl)} size={56} />
         <div>
           <h1 style={{ marginBottom: 0 }}>{user.name}</h1>
           {user.bio && <p className="fs-muted" style={{ marginTop: 4 }}>{user.bio}</p>}
@@ -59,6 +61,8 @@ export default function PublicProfile() {
           </div>
         </section>
       )}
+
+      <Achievements achievements={achievements} hidden={achievementsHidden} name={user.name} />
 
       <section className="panel" style={{ marginTop: 24 }}>
         <div className="panel-head"><h3>Shared workspaces</h3></div>

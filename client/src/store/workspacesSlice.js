@@ -26,7 +26,7 @@ export const fetchPeople = createAsyncThunk('workspaces/people', async (workspac
     const { members } = await workspaceApi.people(workspaceId)
     const people = {}
     for (const m of members) {
-      people[m.user._id] = { id: m.user._id, name: m.user.name, email: m.user.email, hidden: !!m.hidden }
+      people[m.user._id] = { id: m.user._id, name: m.user.name, email: m.user.email, avatarUrl: m.user.avatarUrl || '', hidden: !!m.hidden }
     }
     return { workspaceId, people }
   } catch (e) {

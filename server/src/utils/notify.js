@@ -9,13 +9,16 @@ const PREF_BY_TYPE = {
   comment_reply: 'comments',
   mention: 'mentions',
   deadline_approaching: 'dueDates',
+  deadline_overdue: 'dueDates',
+  pr_opened: 'taskUpdates',
+  pr_merged: 'taskUpdates',
 };
 
 // Fire-and-forget: notification delivery must never break the action that triggered it
 // (e.g. a failed notification should not stop a task assignment from saving).
 // Never notifies a user about their own action.
 // Honours the recipient's per-category preferences from Settings.
-async function notify({ user, actor, type, message, link }) {
+async function notify({ user, actor, type, message, link, key }) {
   try {
     if (!user || String(user) === String(actor)) return null;
 
@@ -26,8 +29,9 @@ async function notify({ user, actor, type, message, link }) {
       if (prefs && prefs[prefKey] === false) return null;
     }
 
-    return await Notification.create({ user, type, message, link });
+    return await Notification.create({ user, type, message, link, ...(key ? { key } : {}) });
   } catch (error) {
+    if (error && error.code === 11000) return null; // the same once-only notification already exists
     console.error('notify() failed:', error.message);
     return null;
   }
