@@ -28,7 +28,7 @@ const toForm = (task) => ({
 
 // When project/role/people are not passed (e.g. opened from global search), the
 // drawer resolves them itself from the task's project and workspace.
-export default function TaskDrawer({ taskId, project: propProject, role: propRole, people: propPeople, onClose, onChanged }) {
+export default function TaskDrawer({ taskId, project: propProject, role: propRole, people: propPeople, onClose, onChanged = () => {} }) {
   const dispatch = useDispatch()
   const me = useSelector((s) => s.auth.user?.id)
   const [task, setTask] = useState(null)
@@ -40,6 +40,7 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [newItem, setNewItem] = useState('')
+  const [picker, setPicker] = useState({ open: false, status: 'idle', items: [] }) // choosing a task this one must wait for
 
   const workspaceId = project?.workspace
   const storeRole = useSelector((s) => (workspaceId ? selectRoleIn(s, workspaceId) : null))
@@ -90,6 +91,30 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
     } finally {
       setBusy(false)
     }
+  }
+
+  // "Blocked by": the tasks that must finish before this one can start. The server refuses a task that waits for itself,
+  // a task of another project, and a circular chain; its reason is shown.
+  async function openPicker() {
+    setPicker({ open: true, status: 'loading', items: [] })
+    try {
+      const res = await taskApi.list(task.project, { limit: 200 })
+      setPicker({ open: true, status: 'ready', items: res.tasks || [] })
+    } catch {
+      setPicker({ open: true, status: 'error', items: [] })
+    }
+  }
+
+  async function saveDependencies(depIds) {
+    const res = await run(() => taskApi.update(taskId, { dependencies: depIds }), 'Dependencies saved')
+    if (!res) return
+    const fresh = await taskApi.get(taskId).catch(() => null) // the full task again: titles of the tasks it waits for, and what waits for it
+    if (fresh) {
+      setTask(fresh.task)
+      setBlocks(fresh.blocks || [])
+    }
+    setPicker({ open: false, status: 'idle', items: [] })
+    onChanged()
   }
 
   async function save(e) {
@@ -260,15 +285,43 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
             </div>
           )}
 
-          {(task.dependencies?.length > 0 || blocks.length > 0) && (
+          {(task.dependencies?.length > 0 || blocks.length > 0 || (editable && !task.isArchived)) && (
             <>
               <div className="fs-label">Dependencies</div>
               {task.dependencies?.map((d) => (
-                <div key={d._id} className="fs-muted">Blocked by: {d.title} <span className="badge">{d.status}</span></div>
+                <div key={d._id} className="fs-row" style={{ gap: 6 }}>
+                  <div className="fs-muted">Blocked by: {d.title} <span className="badge">{d.status}</span></div>
+                  {editable && !task.isArchived && (
+                    <button type="button" className="fs-btn small ghost" aria-label={`Remove dependency ${d.title}`} disabled={busy} onClick={() => saveDependencies(task.dependencies.filter((x) => x._id !== d._id).map((x) => x._id))}>
+                      Remove
+                    </button>
+                  )}
+                </div>
               ))}
               {blocks.map((b) => (
                 <div key={b._id} className="fs-muted">Blocks: {b.title} <span className="badge">{b.status}</span></div>
               ))}
+              {editable && !task.isArchived && (
+                picker.open ? (
+                  <div className="fs-row" style={{ gap: 6 }}>
+                    <select
+                      aria-label="Task to wait for"
+                      className="fs-select"
+                      value=""
+                      disabled={busy || picker.status !== 'ready'}
+                      onChange={(e) => e.target.value && saveDependencies([...(task.dependencies || []).map((x) => x._id), e.target.value])}
+                    >
+                      <option value="">{picker.status === 'loading' ? 'Loading…' : picker.status === 'error' ? 'Could not load the tasks' : 'Choose a task it must wait for…'}</option>
+                      {picker.items
+                        .filter((t) => t._id !== task._id && !(task.dependencies || []).some((d) => d._id === t._id))
+                        .map((t) => <option key={t._id} value={t._id}>{t.title} ({t.status})</option>)}
+                    </select>
+                    <button type="button" className="fs-btn small ghost" onClick={() => setPicker({ open: false, status: 'idle', items: [] })}>Cancel</button>
+                  </div>
+                ) : (
+                  <button type="button" className="fs-btn small" disabled={busy} onClick={openPicker}>Add dependency</button>
+                )
+              )}
             </>
           )}
 

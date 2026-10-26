@@ -160,7 +160,19 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       const sub = mm[2]
       const populate = (x) => ({ ...x, dependencies: (x.dependencies || []).map((d) => { const o = state.tasks.find((y) => y._id === String(d)); return o ? { _id: o._id, title: o.title, status: o.status } : d }) })
       if (!sub && method === 'get') return ok({ success: true, task: { ...populate(t), reporter: { _id: t.reporter, name: 'Someone' } }, blocks: state.tasks.filter((x) => (x.dependencies || []).map(String).includes(t._id)).map((x) => ({ _id: x._id, title: x.title, status: x.status })) })
-      if (!sub && method === 'put') { Object.assign(t, body); return ok({ success: true, task: t }) }
+      if (!sub && method === 'put') {
+        if (body.dependencies !== undefined) {
+          // the real server's rules: not itself, only tasks of this project, and never a circle
+          const list = [...new Set(body.dependencies.map(String))]
+          if (list.includes(t._id)) return fail(err(400, 'A task cannot depend on itself'))
+          if (list.some((d) => !state.tasks.some((y) => y._id === d))) return fail(err(400, 'All dependencies must be existing tasks in the same project'))
+          const reaches = (from, target, seen = new Set()) => { if (from === target) return true; if (seen.has(from)) return false; seen.add(from); return (state.tasks.find((y) => y._id === from)?.dependencies || []).some((n) => reaches(String(n), target, seen)) }
+          if (list.some((d) => reaches(d, t._id))) return fail(err(400, 'These dependencies would create a circular dependency'))
+          body = { ...body, dependencies: list }
+        }
+        Object.assign(t, body)
+        return ok({ success: true, task: populate(t) })
+      }
       if (sub === '/status' && method === 'patch') {
         if (failMove) return fail(err(403, 'Viewers have read-only access'))
         t.status = body.status; if (body.position !== undefined) t.position = body.position

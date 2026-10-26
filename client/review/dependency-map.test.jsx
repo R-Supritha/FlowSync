@@ -110,7 +110,7 @@ describe('empty and unusual projects', () => {
   it('tasks without any dependency: a clear note, and the tasks are still listed', async () => {
     await mount({ depGraph: 'none-linked' })
     expect(await screen.findByText(/No dependencies yet/)).toBeInTheDocument()
-    expect(screen.getByText(/Projects made with the AI generator/)).toBeInTheDocument()
+    expect(screen.getByText(/click "Add dependency"/)).toBeInTheDocument()
     expect(document.querySelectorAll('[data-edge]')).toHaveLength(0)
     expect(within(screen.getByRole('region', { name: 'Tasks without dependencies' })).getByText('Write docs')).toBeInTheDocument()
   })

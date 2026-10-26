@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useDispatch } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import { useParams } from 'react-router-dom'
 import { taskApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -79,6 +79,7 @@ export default function ProjectDependencies() {
   const [state, setState] = useState({ status: 'loading', tasks: [], total: 0, error: '' })
 
   const [attempt, setAttempt] = useState(0)
+  const openTaskId = useSelector((s) => s.ui.openTaskId) // looking again whenever the task details open or close, so a change made there shows up
 
   useEffect(() => {
     let alive = true
@@ -92,7 +93,7 @@ export default function ProjectDependencies() {
     return () => {
       alive = false
     }
-  }, [projectId, attempt])
+  }, [projectId, attempt, openTaskId])
 
   const retry = () => {
     setState((s) => ({ ...s, status: 'loading' }))
@@ -125,7 +126,7 @@ export default function ProjectDependencies() {
       {state.total > LIMIT && <p className="fs-muted">Showing the first {LIMIT} of {state.total} tasks.</p>}
 
       {state.tasks.length === 0 ? (
-        <EmptyState title="No tasks yet">Add tasks on the Board. Projects made with the AI generator get their dependencies drawn here.</EmptyState>
+        <EmptyState title="No tasks yet">Add tasks on the Board, then open a task and use &quot;Add dependency&quot; to say which ones must finish first.</EmptyState>
       ) : (
         <>
           {hasLinks ? (
@@ -145,7 +146,7 @@ export default function ProjectDependencies() {
               </div>
             </div>
           ) : (
-            <p className="fs-muted">No dependencies yet. Projects made with the AI generator get dependencies between their tasks, and they appear here as arrows.</p>
+            <p className="fs-muted">No dependencies yet. Open a task and click &quot;Add dependency&quot; to pick a task it must wait for. Projects made with the AI generator get them automatically. They appear here as arrows.</p>
           )}
 
           {layout.isolated.length > 0 && (
