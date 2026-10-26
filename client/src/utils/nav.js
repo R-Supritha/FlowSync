@@ -6,6 +6,7 @@ export const VIEWS = {
   analytics: 'Analytics',
   standup: 'Stand-up',
   sprint: 'Sprint',
+  dependencies: 'Dependencies',
   github: 'GitHub',
   milestones: 'Milestones',
   files: 'Files',
@@ -57,5 +58,6 @@ export const PROJECT_VIEWS = [
   { id: 'analytics', label: 'Analytics' },
   { id: 'standup', label: 'Stand-up' },
   { id: 'sprint', label: 'Sprint' },
+  { id: 'dependencies', label: 'Dependencies' },
   { id: 'github', label: 'GitHub' },
 ]

@@ -14,7 +14,7 @@ const BADGES_RESPONSE = {
   ],
 }
 
-export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false, withCommentFiles = false, githubExtras = 'none', botMessage = false, seedReactions = false, chatLinks = false, chatMention = false } = {}) {
+export function makeServer({ role = 'Admin', failMove = false, failReorder = false, githubLinked = false, hiddenDots = false, ai = 'ok', ocrFail = false, breakdown = 'ok', standup = 'ok', sprint = 'ok', githubIgnored = false, manyMessages = false, resend = 'ok', verifiedOnServer = false, moreNotifications = false, achievements = 'shown', avatarFail = false, pictures = false, hasPicture = false, withCommentFiles = false, githubExtras = 'none', botMessage = false, seedReactions = false, chatLinks = false, chatMention = false, depGraph = false, failTasks = false } = {}) {
   const calls = []
   const iso = (n = 0) => new Date(Date.now() + n * 86400000).toISOString()
   const me = { _id: ids.me, name: 'Sunitha', email: 'sunitha@test.com' }
@@ -65,6 +65,31 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       { _id: 'cf1', originalName: 'notes.pdf', mimetype: 'application/pdf', size: 2048, uploadedBy: ids.me, createdAt: iso(-1), comment: 'c1' },
       { _id: 'cf2', originalName: 'mockup.png', mimetype: 'image/png', size: 5 * 1024 * 1024, uploadedBy: ids.other, createdAt: iso(-1), comment: 'c1' },
     )
+  }
+  state.failTasks = failTasks
+  if (depGraph) {
+    const T = (n) => `6ac87dc3e1de3a64a30141${n}`
+    const mk = (n, title, status, over = {}) => ({ _id: T(n), project: ids.project, title, status, position: 0, priority: 'Medium', labels: [], reporter: ids.me, assignee: null, checklist: [], dependencies: [], estimatedHours: 0, ...over })
+    if (depGraph === 'none') state.tasks = []
+    else if (depGraph === 'none-linked') state.tasks = [mk('06', 'Write docs', 'Backlog'), mk('07', 'Plan sprint', 'To Do')]
+    else if (depGraph === 'cycle') {
+      state.tasks = [
+        mk('01', 'Design schema', 'To Do', { dependencies: [T('03')] }),
+        mk('02', 'Build API', 'In Progress', { dependencies: [T('01')] }),
+        mk('03', 'Write tests', 'Backlog', { dependencies: [T('02')] }),
+        mk('06', 'Write docs', 'Backlog'),
+      ]
+    } else {
+      // Design schema (8 h) -> Build API (6 h) -> Write tests (4 h) -> Deploy (5 h); Set up CI (done) -> Deploy; Write docs on its own
+      state.tasks = [
+        mk('01', 'Design schema', 'To Do', { estimatedHours: 8, assignee: me, deadline: iso(3) }),
+        mk('02', 'Build API', 'In Progress', { estimatedHours: 6, dependencies: [T('01')] }),
+        mk('03', 'Write tests', 'Backlog', { estimatedHours: 4, dependencies: [T('02')] }),
+        mk('04', 'Deploy', 'Backlog', { estimatedHours: 5, dependencies: [T('03'), T('05')] }),
+        mk('05', 'Set up CI', 'Done', { estimatedHours: 2 }),
+        mk('06', 'Write docs', 'Backlog'),
+      ]
+    }
   }
   if (chatMention) state.notifications.push({ _id: 'n9', type: 'mention', message: 'Test User Two mentioned you in #general', isRead: false, createdAt: iso(-0.01), link: { workspace: ids.ws, channel: 'ch-general' } })
   if (hasPicture) state.profile.avatarUrl = '/avatars/me-0123456789abcdef.png'
@@ -120,6 +145,11 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
       body.orderedTaskIds.forEach((id, i) => { state.tasks.find((x) => x._id === id).position = i })
       return ok({ success: true })
     }
+    if (url === `/projects/${P}/tasks` && method === 'get') {
+      if (state.failTasks) return fail(err(500, 'boom'))
+      const list = state.tasks.filter((t) => !t.isArchived)
+      return ok({ success: true, tasks: JSON.parse(JSON.stringify(list)), total: list.length, page: 1, pages: 1 })
+    }
     if (url === `/projects/${P}/tasks` && method === 'post') {
       const t = { _id: '6ac87dc3e1de3a64a30140b0', position: 9, labels: [], checklist: [], dependencies: [], reporter: ids.me, status: body.status || 'Backlog', ...body }
       state.tasks.push(t); return ok({ success: true, task: t }, 201)
@@ -128,7 +158,8 @@ export function makeServer({ role = 'Admin', failMove = false, failReorder = fal
     if (mm) {
       const t = state.tasks.find((x) => x._id === mm[1])
       const sub = mm[2]
-      if (!sub && method === 'get') return ok({ success: true, task: { ...t, reporter: { _id: t.reporter, name: 'Someone' } }, blocks: [] })
+      const populate = (x) => ({ ...x, dependencies: (x.dependencies || []).map((d) => { const o = state.tasks.find((y) => y._id === String(d)); return o ? { _id: o._id, title: o.title, status: o.status } : d }) })
+      if (!sub && method === 'get') return ok({ success: true, task: { ...populate(t), reporter: { _id: t.reporter, name: 'Someone' } }, blocks: state.tasks.filter((x) => (x.dependencies || []).map(String).includes(t._id)).map((x) => ({ _id: x._id, title: x.title, status: x.status })) })
       if (!sub && method === 'put') { Object.assign(t, body); return ok({ success: true, task: t }) }
       if (sub === '/status' && method === 'patch') {
         if (failMove) return fail(err(403, 'Viewers have read-only access'))

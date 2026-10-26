@@ -13,6 +13,7 @@ import AiProjectGenerator from './pages/AiProjectGenerator'
 import ProjectFiles from './pages/ProjectFiles'
 import ProjectStandup from './pages/ProjectStandup'
 import ProjectSprint from './pages/ProjectSprint'
+import ProjectDependencies from './pages/ProjectDependencies'
 import ChatPage from './pages/Chat'
 import Board from './pages/Board'
 import ProjectCalendarPage from './pages/ProjectCalendar'
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="projects/:projectId/files" element={<ProjectFiles />} />
           <Route path="projects/:projectId/standup" element={<ProjectStandup />} />
           <Route path="projects/:projectId/sprint" element={<ProjectSprint />} />
+          <Route path="projects/:projectId/dependencies" element={<ProjectDependencies />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="analytics" element={<Analytics />} />
