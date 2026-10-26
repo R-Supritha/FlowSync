@@ -182,6 +182,11 @@ export const githubApi = {
   unlink: (projectId) => api.delete(`/projects/${projectId}/github`).then(data),
   sync: (projectId) => api.post(`/projects/${projectId}/github/sync`).then(data),
   taskRefs: (projectId) => api.get(`/projects/${projectId}/github/task-refs`).then(data),
+  reviews: (projectId, params) => api.get(`/projects/${projectId}/github/reviews`, { params }).then(data),
+  updateWorkflow: (projectId, workflow) =>
+    api.patch(`/projects/${projectId}/github/workflow`, { workflow }).then(data),
+  releaseNotes: (projectId, params) =>
+    api.get(`/projects/${projectId}/github/release-notes`, { params }).then(data),
 }
 
 export const calendarApi = {

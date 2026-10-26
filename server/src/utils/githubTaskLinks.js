@@ -1,9 +1,9 @@
-const { postBotMessage } = require('./chatBot');
 const Task = require('../models/Task');
 const ActivityLog = require('../models/ActivityLog');
 const { publish } = require('./activityBus');
 const { categoryFor } = require('./activity');
 const { DONE_STATUS } = require('./analyticsMath');
+const { applyStatusTransition } = require('../services/statusTransitionService');
 
 // A task is referenced as FS-xxxxxx, where xxxxxx is the last 6 characters of its id.
 // Put it in a commit message, a branch name or a pull request title / description.
@@ -80,42 +80,25 @@ async function moveTask({ ev, project, taskId, actor, ref, viaAuthor = false }) 
   const alreadyThere = target === DONE_STATUS ? task.status === DONE_STATUS : currentIndex >= targetIndex;
   if (alreadyThere) return { status: 'unchanged' };
 
-  const previousStatus = task.status;
-  const last = await Task.findOne({ project: project._id, status: target }).sort({ position: -1 }).select('position');
-  task.status = target;
-  task.position = last ? last.position + 1 : 0;
-  task.completedAt = target === DONE_STATUS ? task.completedAt || ev.date : undefined;
-  await task.save();
-
-  const done = target === DONE_STATUS;
   const because = describeTrigger(ev) + (viaAuthor ? ', matched by author' : '');
-  await recordActivity({
-    workspace: project.workspace,
-    project: project._id,
+  const result = await applyStatusTransition({
+    task,
+    project,
+    targetStatus: target,
     actor,
-    type: done ? 'task_completed' : 'task_status_changed',
-    message: done
-      ? `completed "${task.title}" (${because})`
-      : `moved "${task.title}" from ${previousStatus} to ${target} (${because})`,
-    task: task._id,
-    taskTitle: task.title,
-    meta: {
-      from: previousStatus,
-      to: target,
-      source: 'github',
-      auto: true,
-      trigger: ev.type,
-      ref,
-      via: viaAuthor ? 'author' : 'reference',
-      url: ev.meta && ev.meta.url,
-    },
-    // one millisecond after the commit / PR, so the move sits right above it in the feed
-    createdAt: new Date(ev.date.getTime() + 1),
+    eventType: ev.type,
+    eventKey: ev.key,
+    eventAt: ev.date,
+    reason: because,
+    ref,
+    viaAuthor,
+    extraMeta: { url: ev.meta && ev.meta.url },
   });
-  // FR30: tell the project's chat (never throws, not waited for)
-  if (done) postBotMessage({ workspace: project.workspace, project: project._id, actor, kind: 'task_done', text: `✅ "${task.title}" is Done (${because})` });
 
-  return { status: 'moved', moved: { ref, title: task.title, from: previousStatus, to: target, because } };
+  // The explicit forward-only rule of the synchronize flow (a later commit never pulls a task
+  // back). applyStatusTransition adds the general safety rules on top of it.
+  if (result.status === 'stale') return { status: 'unchanged' };
+  return result;
 }
 
 // Looks for task references in one GitHub event and moves the tasks it finds.

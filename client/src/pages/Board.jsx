@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useParams } from 'react-router-dom'
 import { fetchProject } from '../store/projectsSlice'
 import { createTask, fetchBoard, moveTask, resetBoard, saveColumns } from '../store/boardSlice'
+import { activityApi } from '../api/endpoints'
 import { selectRoleIn, setCurrentWorkspace } from '../store/workspacesSlice'
 import { pushToast } from '../store/uiSlice'
 import { canWrite, isManager } from '../utils/roles'
@@ -199,6 +200,7 @@ export default function Board() {
   const project = useSelector((s) => (s.projects.current?._id === projectId ? s.projects.current : null))
   const projectError = useSelector((s) => s.projects.error)
   const board = useSelector((s) => s.board)
+  const token = useSelector((s) => s.auth.token)
   const workspaceId = project?.workspace
   const role = useSelector((s) => (workspaceId ? selectRoleIn(s, workspaceId) : null))
   const people = useSelector((s) => (workspaceId ? s.workspaces.people[workspaceId] : null)) || EMPTY
@@ -239,6 +241,75 @@ export default function Board() {
   useEffect(() => {
     if (project) dispatch(fetchBoard({ projectId, filters: activeFilters }))
   }, [project, projectId, activeFilters, dispatch])
+
+  // A GitHub webhook can move a card while this board is open. Listen to the existing project
+  // activity stream (the JWT stays in the Authorization header) and reload only when a status
+  // change was made by the automation, so manual edits are never interrupted.
+  useEffect(() => {
+    if (!projectId || !token) return undefined
+    const controller = new AbortController()
+    let timer = null
+    let cancelled = false
+
+    const refreshFromGithub = (activity) => {
+      if (!activity || !activity.meta || activity.meta.auto !== true) return
+      if (!['task_status_changed', 'task_completed'].includes(activity.type)) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (cancelled) return
+        dispatch(fetchBoard({ projectId, filters: activeFilters }))
+        const from = activity.meta.from
+        const to = activity.meta.to
+        const title = activity.taskTitle || 'A task'
+        dispatch(pushToast(
+          from && to ? `${title} moved from ${from} to ${to} on GitHub` : `${title} was updated on GitHub`,
+          'success',
+        ))
+      }, 250)
+    }
+
+    ;(async () => {
+      let res
+      try {
+        res = await fetch(activityApi.streamUrl(projectId), {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        })
+        if (!res.ok || !res.body) return
+      } catch {
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const chunks = buffer.split('\n\n')
+          buffer = chunks.pop() || ''
+          for (const chunk of chunks) {
+            const line = chunk.split('\n').find((l) => l.startsWith('data: '))
+            if (!line) continue
+            try {
+              refreshFromGithub(JSON.parse(line.slice(6)))
+            } catch {
+              /* ignore malformed frames */
+            }
+          }
+        }
+      } catch {
+        /* connection closed */
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+      controller.abort()
+    }
+  }, [projectId, token, activeFilters, dispatch])
 
   const refresh = useCallback(
     () => dispatch(fetchBoard({ projectId, filters: activeFilters })),

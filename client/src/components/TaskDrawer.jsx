@@ -220,6 +220,18 @@ export default function TaskDrawer({ taskId, project: propProject, role: propRol
           <label className="fs-label" htmlFor="td-desc">Description</label>
           <textarea id="td-desc" className="fs-textarea" disabled={!editable} value={form.description} onChange={set('description')} />
 
+          {task.github && (task.github.prUrl || task.github.reviewVerdict || task.github.checksConclusion) && (
+            <div className="fs-muted" style={{ fontSize: 12, marginBottom: 8 }} aria-label="GitHub status">
+              {task.github.prNumber && (
+                task.github.prUrl
+                  ? <a href={task.github.prUrl} target="_blank" rel="noreferrer">PR #{task.github.prNumber}</a>
+                  : <span>PR #{task.github.prNumber}</span>
+              )}
+              {task.github.reviewVerdict && <span> · Review: {String(task.github.reviewVerdict).replace(/_/g, ' ')}</span>}
+              {task.github.checksConclusion && <span> · Checks: {String(task.github.checksConclusion).replace(/_/g, ' ')}</span>}
+            </div>
+          )}
+
           <div className="fs-row">
             <div style={{ flex: 1 }}>
               <label className="fs-label" htmlFor="td-pri">Priority</label>

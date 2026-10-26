@@ -25,6 +25,17 @@ const githubLinkSchema = new mongoose.Schema(
     knownBranches: [{ type: String }],
     branchesBaselined: { type: Boolean, default: false },
     recentNewBranches: [{ name: { type: String }, seenAt: { type: Date } }],
+    // Deterministic rules for automatic Kanban movement. AI findings only influence the review
+    // verdict; they never bypass these switches.
+    workflow: {
+      completionOnMerge: { type: Boolean, default: true },
+      requireChecksForDone: { type: Boolean, default: false },
+      testingBeforeDone: { type: Boolean, default: false },
+      moveToTestingOnApproval: { type: Boolean, default: true },
+      reopenOnNewCommits: { type: Boolean, default: true },
+      reviewSeverityThreshold: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'high' },
+      reviewConfidenceThreshold: { type: Number, min: 0, max: 1, default: 0.7 },
+    },
   },
   { timestamps: true }
 );

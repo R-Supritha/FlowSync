@@ -39,6 +39,23 @@ const taskSchema = new mongoose.Schema(
       },
     ],
     completedAt: { type: Date },
+    // Whether the last status change was made by a person or by the GitHub automation.
+    // A manually completed task is never reopened automatically.
+    statusSource: { type: String, enum: ['manual', 'github'], default: 'manual' },
+    // The latest GitHub evidence for this task. Used to reject stale/out-of-order webhooks
+    // and to keep the review, checks and pull-request context in one place.
+    github: {
+      prNumber: { type: Number },
+      prUrl: { type: String, trim: true },
+      branch: { type: String, trim: true },
+      lastEventAt: { type: Date },
+      lastEventKey: { type: String, trim: true },
+      reviewStatus: { type: String, trim: true },
+      reviewVerdict: { type: String, trim: true },
+      checksConclusion: { type: String, trim: true },
+      lastTransitionAt: { type: Date },
+      lastTransitionReason: { type: String, trim: true },
+    },
     isArchived: { type: Boolean, default: false },
   },
   { timestamps: true }

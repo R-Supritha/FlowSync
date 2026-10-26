@@ -1,9 +1,13 @@
+const mongoose = require('mongoose');
 const Project = require('../models/Project');
 const Workspace = require('../models/Workspace');
 const User = require('../models/User');
 const Task = require('../models/Task');
 const GithubLink = require('../models/GithubLink');
 const GithubEvent = require('../models/GithubEvent');
+const GithubReview = require('../models/GithubReview');
+const ReleaseNote = require('../models/ReleaseNote');
+const { getGithubWorkflow } = require('../services/statusTransitionService');
 const { notifyPullRequest } = require('../utils/githubNotify');
 const { collectExtras } = require('../utils/githubExtras');
 const { recordActivity, makeTaskIndex, applyEventToTasks, applyAuthorFallback, refFor, extractRefs } = require('../utils/githubTaskLinks');
@@ -40,6 +44,7 @@ function publicLink(link) {
     lastSyncSummary: link.lastSyncSummary,
     branchCount: link.branchesBaselined ? (link.knownBranches || []).length : null,
     recentNewBranches: (link.recentNewBranches || []).map((b) => ({ name: b.name, seenAt: b.seenAt })),
+    workflow: getGithubWorkflow(link),
     linkedAt: link.createdAt,
   };
 }
@@ -339,4 +344,96 @@ async function listTaskRefs(req, res) {
   }
 }
 
-module.exports = { linkRepository, getLink, unlinkRepository, syncRepository, listTaskRefs };
+// GET /projects/:projectId/github/reviews?taskId=&prNumber=&limit=
+// AI and human review history for the GitHub panel / task drawer.
+async function listReviews(req, res) {
+  try {
+    const loaded = await loadProject(req, res);
+    if (!loaded) return;
+    const query = { project: loaded.project._id };
+    if (req.query.taskId) {
+      if (!mongoose.isValidObjectId(req.query.taskId)) return fail(res, 400, 'taskId is not valid');
+      query.task = req.query.taskId;
+    }
+    if (req.query.prNumber != null && req.query.prNumber !== '') {
+      const number = Number(req.query.prNumber);
+      if (!Number.isInteger(number) || number < 1) return fail(res, 400, 'prNumber must be a positive number');
+      query.prNumber = number;
+    }
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+    const reviews = await GithubReview.find(query)
+      .sort({ reviewedAt: -1 })
+      .limit(limit)
+      .populate('task', 'title status')
+      .lean();
+    res.json({ success: true, reviews });
+  } catch (error) {
+    serverError(res, 'Failed to load GitHub reviews', error);
+  }
+}
+
+// PATCH /projects/:projectId/github/workflow
+// Project-level controls for automatic movement; defaults preserve the old sync behaviour.
+async function updateWorkflow(req, res) {
+  try {
+    const loaded = await loadProject(req, res);
+    if (!loaded) return;
+    if (!isManagerRole(loaded.role)) return fail(res, 403, 'Only Admin or Manager can change the GitHub workflow');
+    const link = await GithubLink.findOne({ project: loaded.project._id });
+    if (!link) return fail(res, 404, 'This project is not linked to a GitHub repository');
+
+    const body = (req.body && req.body.workflow) || req.body || {};
+    if (!link.workflow) link.workflow = {};
+    const booleans = ['completionOnMerge', 'requireChecksForDone', 'testingBeforeDone', 'moveToTestingOnApproval', 'reopenOnNewCommits'];
+    for (const key of booleans) {
+      if (body[key] === undefined) continue;
+      if (typeof body[key] !== 'boolean') return fail(res, 400, `${key} must be true or false`);
+      link.workflow[key] = body[key];
+    }
+    if (body.reviewSeverityThreshold !== undefined) {
+      const value = String(body.reviewSeverityThreshold).toLowerCase();
+      if (!['low', 'medium', 'high', 'critical'].includes(value)) {
+        return fail(res, 400, 'reviewSeverityThreshold must be low, medium, high or critical');
+      }
+      link.workflow.reviewSeverityThreshold = value;
+    }
+    if (body.reviewConfidenceThreshold !== undefined) {
+      const value = Number(body.reviewConfidenceThreshold);
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        return fail(res, 400, 'reviewConfidenceThreshold must be between 0 and 1');
+      }
+      link.workflow.reviewConfidenceThreshold = value;
+    }
+    await link.save();
+    res.json({ success: true, workflow: getGithubWorkflow(link) });
+  } catch (error) {
+    serverError(res, 'Failed to update the GitHub workflow', error);
+  }
+}
+
+// GET /projects/:projectId/github/release-notes
+async function listReleaseNotes(req, res) {
+  try {
+    const loaded = await loadProject(req, res);
+    if (!loaded) return;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+    const notes = await ReleaseNote.find({ project: loaded.project._id })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    res.json({ success: true, releaseNotes: notes });
+  } catch (error) {
+    serverError(res, 'Failed to load release notes', error);
+  }
+}
+
+module.exports = {
+  linkRepository,
+  getLink,
+  unlinkRepository,
+  syncRepository,
+  listTaskRefs,
+  listReviews,
+  updateWorkflow,
+  listReleaseNotes,
+};

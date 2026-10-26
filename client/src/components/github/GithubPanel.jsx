@@ -25,13 +25,20 @@ export default function GithubPanel({ projectId }) {
   const [showLink, setShowLink] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [refs, setRefs] = useState(null)
+  const [workflow, setWorkflow] = useState(null)
+  const [reviews, setReviews] = useState([])
+  const [releaseNotes, setReleaseNotes] = useState([])
+  const [savingWorkflow, setSavingWorkflow] = useState(false)
 
   async function load() {
     try {
       const res = await githubApi.get(projectId)
       setLink(res.linked ? res.link : null)
       if (res.linked) {
+        setWorkflow(res.link.workflow || null)
         githubApi.taskRefs(projectId).then((r) => setRefs(r)).catch(() => setRefs(null))
+        githubApi.reviews(projectId, { limit: 10 }).then((r) => setReviews(r.reviews || [])).catch(() => setReviews([]))
+        githubApi.releaseNotes(projectId, { limit: 10 }).then((r) => setReleaseNotes(r.releaseNotes || [])).catch(() => setReleaseNotes([]))
       }
       setStatus('ready')
     } catch (e) {
@@ -91,6 +98,21 @@ export default function GithubPanel({ projectId }) {
       setRefs(null)
     } catch (e) {
       dispatch(pushToast(errorMessage(e), 'error'))
+    }
+  }
+
+  async function saveWorkflow(next) {
+    setWorkflow(next)
+    setSavingWorkflow(true)
+    try {
+      const res = await githubApi.updateWorkflow(projectId, next)
+      if (res.workflow) setWorkflow(res.workflow)
+      dispatch(pushToast('Automatic GitHub rules saved', 'success'))
+    } catch (e) {
+      dispatch(pushToast(errorMessage(e, 'Could not save the rules'), 'error'))
+      load()
+    } finally {
+      setSavingWorkflow(false)
     }
   }
 
@@ -167,6 +189,95 @@ export default function GithubPanel({ projectId }) {
                 <span className="ellipsis">{t.title}</span>
                 <span className="badge">{t.status}</span>
               </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {workflow && (
+        <div className="panel">
+          <div className="panel-head"><h3>Automatic rules</h3></div>
+          <p className="fs-muted" style={{ marginTop: 0 }}>
+            Successful events move linked tasks on the board. Manual moves and completed tasks are respected.
+          </p>
+          <div className="fs-col" style={{ gap: 8 }}>
+            {[
+              ['completionOnMerge', 'Move to Done when a linked PR is merged'],
+              ['requireChecksForDone', 'Require passing CI checks before Done'],
+              ['testingBeforeDone', 'Require the Testing column before Done'],
+              ['moveToTestingOnApproval', 'Move to Testing when a PR is approved'],
+              ['reopenOnNewCommits', 'Move back to In Progress when new commits arrive'],
+            ].map(([key, label]) => (
+              <label key={key} className="fs-row" style={{ gap: 8, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(workflow[key])}
+                  disabled={savingWorkflow || !canLinkGithub(role)}
+                  onChange={(e) => saveWorkflow({ ...workflow, [key]: e.target.checked })}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+            <label className="fs-row" style={{ gap: 8, alignItems: 'center' }}>
+              <span>AI review blocks from</span>
+              <select
+                className="fs-input"
+                value={workflow.reviewSeverityThreshold || 'high'}
+                disabled={savingWorkflow || !canLinkGithub(role)}
+                onChange={(e) => saveWorkflow({ ...workflow, reviewSeverityThreshold: e.target.value })}
+              >
+                {['low', 'medium', 'high', 'critical'].map((level) => <option key={level} value={level}>{level}</option>)}
+              </select>
+              <span>severity at</span>
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                className="fs-input"
+                style={{ width: 76 }}
+                value={workflow.reviewConfidenceThreshold ?? 0.7}
+                disabled={savingWorkflow || !canLinkGithub(role)}
+                onChange={(e) => setWorkflow({ ...workflow, reviewConfidenceThreshold: e.target.value })}
+                onBlur={(e) => saveWorkflow({ ...workflow, reviewConfidenceThreshold: Number(e.target.value) })}
+              />
+              <span>confidence</span>
+            </label>
+          </div>
+        </div>
+      )}
+
+      {reviews.length > 0 && (
+        <div className="panel">
+          <div className="panel-head"><h3>Recent AI reviews</h3></div>
+          <div className="fs-col" style={{ gap: 12 }}>
+            {reviews.map((review) => (
+              <div key={review._id}>
+                <div className="fs-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <a href={review.prUrl} target="_blank" rel="noreferrer">PR #{review.prNumber}</a>
+                  <span className="badge">{review.verdict.replace(/_/g, ' ')}</span>
+                  {review.severity && <span className="badge">{review.severity}</span>}
+                  <span className="fs-muted">{relativeTime(review.reviewedAt)}</span>
+                </div>
+                {review.summary && <p className="fs-muted" style={{ margin: '4px 0' }}>{review.summary}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {releaseNotes.length > 0 && (
+        <div className="panel">
+          <div className="panel-head"><h3>Release notes</h3></div>
+          <div className="fs-col" style={{ gap: 12 }}>
+            {releaseNotes.map((note) => (
+              <div key={note._id}>
+                <div className="fs-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <a href={note.prUrl} target="_blank" rel="noreferrer">{note.title}</a>
+                  <span className="fs-muted">PR #{note.prNumber} · {relativeTime(note.createdAt)}</span>
+                </div>
+                {note.summary && <p className="fs-muted" style={{ margin: '4px 0' }}>{note.summary}</p>}
+              </div>
             ))}
           </div>
         </div>

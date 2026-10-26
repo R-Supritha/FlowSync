@@ -25,6 +25,7 @@ const contributionRoutes = require('./routes/contributionRoutes');
 const presenceRoutes = require('./routes/presenceRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const githubRoutes = require('./routes/githubRoutes');
+const githubWebhookRoutes = require('./routes/githubWebhookRoutes');
 const ocrRoutes = require('./routes/ocrRoutes');
 const aiProjectRoutes = require('./routes/aiProjectRoutes');
 const aiAssistRoutes = require('./routes/aiAssistRoutes');
@@ -36,6 +37,8 @@ const app = express();
 
 app.use(helmet());
 app.use(cors());
+// GitHub signs the exact raw bytes, so this route must run before express.json().
+app.use('/api/github/webhook', githubWebhookRoutes);
 app.use(express.json());
 mountAvatars(app); // profile pictures at /avatars (FR21)
 app.use('/api', activityRoutes);

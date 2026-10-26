@@ -7,6 +7,9 @@ const {
   unlinkRepository,
   syncRepository,
   listTaskRefs,
+  listReviews,
+  updateWorkflow,
+  listReleaseNotes,
 } = require('../controllers/githubController');
 
 // Mounted at /api
@@ -17,5 +20,8 @@ router.get('/projects/:projectId/github', protect, validateObjectId('projectId')
 router.delete('/projects/:projectId/github', protect, validateObjectId('projectId'), unlinkRepository);
 router.post('/projects/:projectId/github/sync', protect, validateObjectId('projectId'), syncRepository);
 router.get('/projects/:projectId/github/task-refs', protect, validateObjectId('projectId'), listTaskRefs);
+router.get('/projects/:projectId/github/reviews', protect, validateObjectId('projectId'), listReviews);
+router.patch('/projects/:projectId/github/workflow', protect, validateObjectId('projectId'), updateWorkflow);
+router.get('/projects/:projectId/github/release-notes', protect, validateObjectId('projectId'), listReleaseNotes);
 
 module.exports = router;
